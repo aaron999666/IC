@@ -18,9 +18,9 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <NavLink className="brand-mark" to="/">
-          <img src="/iccorehub-mark.svg" alt="ICCoreHub logo" />
+          <img src="/iccorehub-mark.svg" alt="芯汇 ICCoreHub logo" />
           <div className="brand-copy">
-            <strong>芯枢 IC</strong>
+            <strong>芯汇 ICCoreHub</strong>
             <small>ICCoreHub.com</small>
           </div>
         </NavLink>
