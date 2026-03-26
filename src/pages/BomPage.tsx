@@ -1,4 +1,5 @@
 import { startTransition, useState } from 'react'
+import { useAuth } from '../lib/auth'
 import { buildWebPageSchema, useSeo } from '../lib/seo'
 import type { BomParseResponse } from '../types'
 
@@ -18,13 +19,12 @@ function BomPage() {
   })
 
   const [text, setText] = useState(sampleBom)
-  const [buyerCompanyId, setBuyerCompanyId] = useState('')
-  const [submittedByUserId, setSubmittedByUserId] = useState('')
   const [persistResult, setPersistResult] = useState(true)
   const [chargePoints, setChargePoints] = useState(true)
   const [result, setResult] = useState<BomParseResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const { selectedCompanyId, session, selectedCompanyName } = useAuth()
 
   async function handleParse() {
     const trimmed = text.trim()
@@ -45,8 +45,8 @@ function BomPage() {
         },
         body: JSON.stringify({
           text: trimmed,
-          buyerCompanyId: buyerCompanyId || undefined,
-          submittedByUserId: submittedByUserId || undefined,
+          buyerCompanyId: selectedCompanyId || undefined,
+          submittedByUserId: session?.user.id || undefined,
           persistResult,
           chargePoints,
         }),
@@ -100,27 +100,14 @@ function BomPage() {
             spellCheck={false}
             aria-label="BOM input"
           />
-          <div className="control-grid">
-            <div className="field-stack">
-              <label htmlFor="buyer-company-id">Buyer company UUID</label>
-              <input
-                id="buyer-company-id"
-                type="text"
-                value={buyerCompanyId}
-                onChange={(event) => setBuyerCompanyId(event.target.value)}
-                placeholder="Optional if default env company id is set"
-              />
+          <div className="drop-zone compact-drop">
+            <div>
+              <strong>{selectedCompanyName ?? 'No authenticated company context'}</strong>
+              <span>{session ? `Parser requests will persist under user ${session.user.email ?? session.user.id}` : 'Sign in to persist BOM jobs and charge real points.'}</span>
             </div>
-            <div className="field-stack">
-              <label htmlFor="submitted-by-user-id">Submitted by user UUID</label>
-              <input
-                id="submitted-by-user-id"
-                type="text"
-                value={submittedByUserId}
-                onChange={(event) => setSubmittedByUserId(event.target.value)}
-                placeholder="Optional if default env user id is set"
-              />
-            </div>
+            <span className="inline-meta">
+              {selectedCompanyId ? `company ${selectedCompanyId}` : 'No company selected'}
+            </span>
           </div>
           <div className="checkbox-row">
             <label>
@@ -149,8 +136,6 @@ function BomPage() {
               className="ghost-link"
               onClick={() => {
                 setText(sampleBom)
-                setBuyerCompanyId('')
-                setSubmittedByUserId('')
                 setPersistResult(true)
                 setChargePoints(true)
                 setError(null)

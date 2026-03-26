@@ -6,11 +6,13 @@
 - dual-engine AI BOM cleansing
 - redacted public inventory search
 - server-side contact reveal with points deduction
+- Supabase-authenticated private operations console
 
 ## What is in the repo
 
 - branded `ICCoreHub` landing page and navigation
 - public market board with Supabase RPC loader fallback to local demo data
+- Supabase Auth sign-in page and protected private routes
 - live AI BOM workspace wired to Cloudflare Pages Functions
 - dual-engine BOM parsing strategy docs at `docs/bom-dual-engine-strategy.md`
 - SEO and GEO assets including route-level meta, JSON-LD, `robots.txt`, `sitemap.xml`, `llms.txt` and `og-cover.svg`
@@ -69,9 +71,9 @@ Copy `.dev.vars.example` for local Pages Function testing:
 - `BOM_FREE_LINES`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_ADMIN_ROLES`
 - `SUPABASE_DEFAULT_BUYER_COMPANY_ID`
 - `SUPABASE_DEFAULT_SUBMITTED_BY_USER_ID`
-- `ADMIN_API_TOKEN`
 - `ADMIN_ENCRYPTION_KEY`
 - `AI_CONFIG_CACHE_TTL_SECONDS`
 
@@ -134,7 +136,7 @@ The repo now includes:
 
 ## Admin AI configuration
 
-The admin console lives at `/admin/ai` and uses a bootstrap bearer token as the current server-side gate.
+The admin console lives at `/admin/ai` and uses the current Supabase Auth session as its server-side gate.
 
 Security model in this repo:
 
@@ -145,9 +147,15 @@ Security model in this repo:
 - if secure admin storage is unavailable, parsing falls back to environment defaults
 - provider draft configs can be health-checked server-side before saving
 - save and test events are written into an audit log table for operator traceability
+- `/dashboard` and `/admin/ai` now depend on Supabase Auth sessions
+- `/admin/ai` only accepts authenticated users with `owner`, `admin` or `ops` company role
 
 Related files:
 
+- `src/pages/AuthPage.tsx`
+- `src/lib/auth.tsx`
+- `src/lib/supabase.ts`
+- `functions/api/admin/auth.ts`
 - `functions/api/admin/ai-config.ts`
 - `functions/api/admin/ai-config-test.ts`
 - `functions/api/admin/ai-provider-health.ts`
@@ -155,6 +163,7 @@ Related files:
 - `src/pages/AdminAiPage.tsx`
 - `supabase/migrations/20260327013000_add_admin_ai_provider_configs.sql`
 - `supabase/migrations/20260327030000_add_admin_ai_config_audit_logs.sql`
+- `supabase/migrations/20260327050000_add_admin_test_status_and_unlock_history.sql`
 
 ## GitHub
 

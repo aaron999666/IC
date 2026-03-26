@@ -11,6 +11,7 @@ export type HotQuery = {
 }
 
 export type SupplierRow = {
+  inventoryId?: string
   seller: string
   rating: string
   mpn: string
@@ -112,6 +113,10 @@ export type AdminAiProviderConfig = {
   source: 'database' | 'environment'
   updated_by: string | null
   updated_at: string | null
+  last_test_status: 'success' | 'failure' | null
+  last_test_message: string | null
+  last_test_latency_ms: number | null
+  last_tested_at: string | null
 }
 
 export type AdminAiConfigAuditLog = {
@@ -140,4 +145,36 @@ export type AdminAiProviderTestResult = {
   latency_ms: number
   message: string
   tested_at: string
+}
+
+export type CompanyMembership = {
+  company_id: string
+  company_name: string
+  kyb_status: string | null
+  role: 'owner' | 'admin' | 'buyer' | 'seller' | 'finance' | 'ops'
+}
+
+export type PointsLedgerEntry = {
+  id: string
+  event_type: string
+  delta: number
+  reference_table: string | null
+  reference_id: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export type ContactUnlockRecord = {
+  unlock_id: string
+  inventory_listing_id: string
+  standard_part_number: string
+  brand: string
+  package_type: string | null
+  seller_company_name: string
+  contact_person: string
+  phone_number: string
+  wechat_id: string | null
+  seller_credit_score: number
+  points_spent: number
+  unlocked_at: string
 }

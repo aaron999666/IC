@@ -11,9 +11,9 @@ export interface AiConfigEnv {
   AI?: AiBinding
   SUPABASE_URL?: string
   SUPABASE_SERVICE_ROLE_KEY?: string
-  ADMIN_API_TOKEN?: string
   ADMIN_ENCRYPTION_KEY?: string
   AI_CONFIG_CACHE_TTL_SECONDS?: string
+  SUPABASE_ADMIN_ROLES?: string
   GEMINI_API_KEY?: string
   GEMINI_MODEL?: string
   GEMINI_BASE_URL?: string
@@ -39,6 +39,10 @@ interface StoredAiConfigRow {
   account_id: string | null
   metadata: Record<string, unknown> | null
   updated_by: string | null
+  last_test_status: AiConfigAuditOutcome | null
+  last_test_message: string | null
+  last_test_latency_ms: number | null
+  last_tested_at: string | null
   created_at: string
   updated_at: string
 }
@@ -86,6 +90,10 @@ export interface AdminAiProviderConfig {
   source: 'database' | 'environment'
   updated_by: string | null
   updated_at: string | null
+  last_test_status: AiConfigAuditOutcome | null
+  last_test_message: string | null
+  last_test_latency_ms: number | null
+  last_tested_at: string | null
 }
 
 export interface UpsertAiProviderPayload {
@@ -321,6 +329,10 @@ function buildEnvAdminConfigs(env: AiConfigEnv): AdminAiProviderConfig[] {
       source: 'environment',
       updated_by: null,
       updated_at: null,
+      last_test_status: null,
+      last_test_message: null,
+      last_test_latency_ms: null,
+      last_tested_at: null,
     },
     {
       provider: 'workers-ai',
@@ -345,6 +357,10 @@ function buildEnvAdminConfigs(env: AiConfigEnv): AdminAiProviderConfig[] {
       source: 'environment',
       updated_by: null,
       updated_at: null,
+      last_test_status: null,
+      last_test_message: null,
+      last_test_latency_ms: null,
+      last_tested_at: null,
     },
   ]
 }
@@ -548,6 +564,10 @@ function toRedactedAdminConfig(row: StoredAiConfigRow): AdminAiProviderConfig {
     source: 'database',
     updated_by: row.updated_by,
     updated_at: row.updated_at,
+    last_test_status: row.last_test_status,
+    last_test_message: row.last_test_message,
+    last_test_latency_ms: row.last_test_latency_ms,
+    last_tested_at: row.last_tested_at,
   }
 }
 
@@ -834,6 +854,10 @@ export async function upsertAdminAiProviderConfig(env: AiConfigEnv, payload: Ups
       last_saved_via: 'admin-console',
     },
     updated_by: validateOperatorName(payload.updatedBy) ?? 'admin-console',
+    last_test_status: existing?.last_test_status ?? null,
+    last_test_message: existing?.last_test_message ?? null,
+    last_test_latency_ms: existing?.last_test_latency_ms ?? null,
+    last_tested_at: existing?.last_tested_at ?? null,
   }
 
   await supabaseFetch(
@@ -852,41 +876,32 @@ export async function upsertAdminAiProviderConfig(env: AiConfigEnv, payload: Ups
   return getAdminAiProviderConfigs(env)
 }
 
-async function digestString(value: string) {
-  const encoded = new TextEncoder().encode(value)
-  return new Uint8Array(await crypto.subtle.digest('SHA-256', encoded))
-}
-
-function timingSafeEqual(left: Uint8Array, right: Uint8Array) {
-  if (left.length !== right.length) {
-    return false
+export async function updateAdminAiProviderTestStatus(
+  env: AiConfigEnv,
+  provider: AiProvider,
+  outcome: AiConfigAuditOutcome,
+  message: string,
+  latencyMs: number | null,
+  testedAt: string,
+) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('Supabase service configuration is required for provider test status updates.')
   }
 
-  let diff = 0
-  for (let index = 0; index < left.length; index += 1) {
-    diff |= left[index] ^ right[index]
-  }
-
-  return diff === 0
-}
-
-export async function isAuthorizedAdminRequest(request: Request, env: AiConfigEnv) {
-  const expectedToken = env.ADMIN_API_TOKEN?.trim()
-  if (!expectedToken) {
-    return false
-  }
-
-  const authorization = request.headers.get('Authorization') ?? ''
-  const bearerToken = authorization.replace(/^Bearer\s+/i, '').trim()
-
-  if (!bearerToken) {
-    return false
-  }
-
-  const [expectedDigest, receivedDigest] = await Promise.all([
-    digestString(expectedToken),
-    digestString(bearerToken),
-  ])
-
-  return timingSafeEqual(expectedDigest, receivedDigest)
+  await supabaseFetch(
+    env,
+    `/rest/v1/admin_ai_provider_configs?provider=eq.${provider}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({
+        last_test_status: outcome,
+        last_test_message: trimOptional(message),
+        last_test_latency_ms: latencyMs,
+        last_tested_at: testedAt,
+      }),
+    },
+  )
 }

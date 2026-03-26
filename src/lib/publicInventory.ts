@@ -45,6 +45,7 @@ function mapRpcRowToSupplierRow(row: PublicInventoryRpcRow): SupplierRow {
   const creditScore = row.seller_credit_score ?? 5
 
   return {
+    inventoryId: row.inventory_listing_id,
     seller: row.is_promoted ? 'Promoted source lane' : 'Identity hidden',
     rating: `${creditScore} / 5`,
     mpn: row.standard_part_number,

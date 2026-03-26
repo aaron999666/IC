@@ -3,7 +3,6 @@ import {
   buildAiConfigAuditSnapshot,
   buildAiConfigAuditSnapshotFromPayload,
   getAdminAiProviderConfigs,
-  isAuthorizedAdminRequest,
   listAdminAiConfigAuditLogs,
   recordAiConfigAuditEvent,
   resolveDraftRuntimeAiProviderConfig,
@@ -12,6 +11,7 @@ import {
   type AiRequestMode,
   upsertAdminAiProviderConfig,
 } from '../ai-config-store'
+import { getAdminSession } from './auth'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -62,18 +62,24 @@ function parseAuditLimit(url: URL) {
 }
 
 async function ensureAdminAuthorized(request: Request, env: AiConfigEnv) {
-  const authorized = await isAuthorizedAdminRequest(request, env)
+  const adminSession = await getAdminSession(request, env)
 
-  if (!authorized) {
-    return jsonResponse(
-      {
-        error: 'Unauthorized. Provide a valid admin bearer token.',
-      },
-      401,
-    )
+  if (!adminSession) {
+    return {
+      failure: jsonResponse(
+        {
+          error: 'Unauthorized. Sign in with a Supabase user that has owner, admin or ops role.',
+        },
+        401,
+      ),
+      adminSession: null,
+    }
   }
 
-  return null
+  return {
+    failure: null,
+    adminSession,
+  }
 }
 
 async function loadConsoleData(env: AiConfigEnv, limit: number) {
@@ -88,6 +94,7 @@ async function loadConsoleData(env: AiConfigEnv, limit: number) {
 async function recordSaveAudit(
   env: AiConfigEnv,
   body: UpdateRequestBody,
+  operatorName: string,
   outcome: 'success' | 'failure',
   message: string,
 ) {
@@ -133,7 +140,7 @@ async function recordSaveAudit(
       provider: body.provider,
       action: 'save',
       outcome,
-      operatorName: body.operatorName ?? body.updatedBy,
+      operatorName,
       changeNote: body.changeNote,
       configSnapshot: snapshot,
       message,
@@ -151,9 +158,9 @@ export function onRequestOptions() {
 }
 
 export async function onRequestGet(context: PagesFunctionContext<AiConfigEnv>) {
-  const authFailure = await ensureAdminAuthorized(context.request, context.env)
-  if (authFailure) {
-    return authFailure
+  const authorization = await ensureAdminAuthorized(context.request, context.env)
+  if (authorization.failure) {
+    return authorization.failure
   }
 
   try {
@@ -170,9 +177,9 @@ export async function onRequestGet(context: PagesFunctionContext<AiConfigEnv>) {
 }
 
 export async function onRequestPost(context: PagesFunctionContext<AiConfigEnv>) {
-  const authFailure = await ensureAdminAuthorized(context.request, context.env)
-  if (authFailure) {
-    return authFailure
+  const authorization = await ensureAdminAuthorized(context.request, context.env)
+  if (authorization.failure) {
+    return authorization.failure
   }
 
   const body = (await context.request.json().catch(() => null)) as UpdateRequestBody | null
@@ -199,16 +206,22 @@ export async function onRequestPost(context: PagesFunctionContext<AiConfigEnv>) 
       clearApiKey: body.clearApiKey,
       apiToken: body.apiToken,
       clearApiToken: body.clearApiToken,
-      updatedBy: body.operatorName ?? body.updatedBy,
+      updatedBy: authorization.adminSession.operatorName,
     })
 
-    await recordSaveAudit(context.env, body, 'success', 'Provider configuration saved successfully.')
+    await recordSaveAudit(
+      context.env,
+      body,
+      authorization.adminSession.operatorName,
+      'success',
+      'Provider configuration saved successfully.',
+    )
 
     const data = await loadConsoleData(context.env, 24)
     return jsonResponse({ ok: true, ...data })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to save admin AI configuration.'
-    await recordSaveAudit(context.env, body, 'failure', message)
+    await recordSaveAudit(context.env, body, authorization.adminSession.operatorName, 'failure', message)
 
     return jsonResponse(
       {

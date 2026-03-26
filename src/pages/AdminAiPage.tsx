@@ -1,6 +1,11 @@
-
-import { startTransition, useMemo, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../lib/auth'
+import {
+  loadAdminAiConsole,
+  saveAdminAiProviderConfig,
+  testAdminAiProviderConfig,
+} from '../lib/adminConsole'
 import { buildWebPageSchema, useSeo } from '../lib/seo'
 import type {
   AdminAiConfigAuditLog,
@@ -178,12 +183,6 @@ function latestSaveAuditForProvider(auditLogs: AdminAiConfigAuditLog[], provider
   return auditLogs.find((item) => item.provider === provider && item.action === 'save') ?? null
 }
 
-function buildTokenHeader(token: string) {
-  return {
-    Authorization: `Bearer ${token.trim()}`,
-  }
-}
-
 function AdminAiPage() {
   const title = 'AI模型配置后台 | 芯汇 ICCoreHub'
   const description = '管理员后台：安全配置 Gemini 与 Cloudflare Workers AI 的模型、模式、优先级与密钥。'
@@ -196,14 +195,14 @@ function AdminAiPage() {
     schema: buildWebPageSchema('/admin/ai', title, description),
   })
 
-  const [adminToken, setAdminToken] = useState('')
-  const [operatorName, setOperatorName] = useState('')
+  const { isConfigured, isReady, session, user } = useAuth()
+  const accessToken = session?.access_token ?? null
   const [changeNote, setChangeNote] = useState('')
   const [configs, setConfigs] = useState<AdminAiProviderConfig[]>([])
   const [auditLogs, setAuditLogs] = useState<AdminAiConfigAuditLog[]>([])
   const [forms, setForms] = useState<Record<string, ProviderFormState>>({})
   const [testResults, setTestResults] = useState<Record<string, AdminAiProviderTestResult>>({})
-  const [status, setStatus] = useState('Enter a bootstrap admin token to load secure provider settings.')
+  const [status, setStatus] = useState('Load the secure AI console with your current Supabase admin session.')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [savingProvider, setSavingProvider] = useState<string | null>(null)
@@ -257,8 +256,8 @@ function AdminAiPage() {
       warnings.push('Only one provider is enabled. Add a backup engine before go-live.')
     }
 
-    if (hasLoaded && !operatorName.trim()) {
-      warnings.push('Operator name is still empty. Save and test events should carry a real operator identity for audit quality.')
+    if (hasLoaded && !user?.email) {
+      warnings.push('Current session does not expose an email identity. Audit logs will fall back to the user id.')
     }
 
     if (hasLoaded && dirtyProviders.length > 0) {
@@ -266,7 +265,7 @@ function AdminAiPage() {
     }
 
     return warnings
-  }, [dirtyProviders.length, hasLoaded, operatorName, topology.activeCount])
+  }, [dirtyProviders.length, hasLoaded, topology.activeCount, user?.email])
 
   function applyConsoleData(payload: AdminAiConfigConsoleResponse) {
     startTransition(() => {
@@ -276,10 +275,9 @@ function AdminAiPage() {
     })
   }
 
-  async function loadConfigs() {
-    const token = adminToken.trim()
-    if (!token) {
-      setError('Admin bearer token is required before loading the secure AI configuration.')
+  const loadConfigs = useCallback(async () => {
+    if (!accessToken) {
+      setError('Current Supabase session is missing an access token.')
       return
     }
 
@@ -287,27 +285,23 @@ function AdminAiPage() {
     setError(null)
 
     try {
-      const response = await fetch('/api/admin/ai-config?limit=24', {
-        method: 'GET',
-        headers: buildTokenHeader(token),
-      })
-
-      const payload = (await response.json().catch(() => null)) as
-        | (AdminAiConfigConsoleResponse & { error?: string })
-        | null
-
-      if (!response.ok || !payload?.configs) {
-        throw new Error(payload?.error ?? 'Failed to load secure AI provider settings.')
-      }
-
+      const payload = await loadAdminAiConsole(accessToken, 24)
       applyConsoleData(payload)
-      setStatus('Secure configuration loaded. Secrets remain write-only, tests are server-side, and audit logs are available below.')
+      setStatus('Secure configuration loaded through Supabase Auth. Secrets remain write-only, tests are server-side, and audit logs are available below.')
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Failed to load secure AI provider settings.')
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [accessToken])
+
+  useEffect(() => {
+    if (!isConfigured || !isReady || !accessToken) {
+      return
+    }
+
+    void loadConfigs()
+  }, [accessToken, isConfigured, isReady, loadConfigs])
 
   function updateForm<K extends keyof ProviderFormState>(
     provider: ProviderFormState['provider'],
@@ -337,12 +331,11 @@ function AdminAiPage() {
   }
 
   async function saveProvider(provider: ProviderFormState['provider']) {
-    const token = adminToken.trim()
     const form = forms[provider]
     const issues = providerIssues[provider] ?? []
 
-    if (!token) {
-      setError('Admin bearer token is required before saving secure AI provider settings.')
+    if (!accessToken) {
+      setError('Current Supabase session is missing an access token.')
       return
     }
 
@@ -360,13 +353,7 @@ function AdminAiPage() {
     setError(null)
 
     try {
-      const response = await fetch('/api/admin/ai-config', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...buildTokenHeader(token),
-        },
-        body: JSON.stringify({
+      const payload = await saveAdminAiProviderConfig(accessToken, {
           provider,
           displayName: form.display_name,
           enabled: form.enabled,
@@ -379,19 +366,8 @@ function AdminAiPage() {
           apiToken: form.apiToken || undefined,
           clearApiKey: form.clearApiKey,
           clearApiToken: form.clearApiToken,
-          operatorName: operatorName || undefined,
-          updatedBy: operatorName || 'admin-console',
           changeNote: changeNote || undefined,
-        }),
       })
-
-      const payload = (await response.json().catch(() => null)) as
-        | ({ ok?: boolean; error?: string } & AdminAiConfigConsoleResponse)
-        | null
-
-      if (!response.ok || !payload?.configs) {
-        throw new Error(payload?.error ?? 'Failed to save provider configuration.')
-      }
 
       applyConsoleData(payload)
       setStatus(`Saved ${providerLabel(provider)}. Secret material stayed server-side, and the change was written to the audit log.`)
@@ -403,12 +379,11 @@ function AdminAiPage() {
   }
 
   async function testProvider(provider: ProviderFormState['provider']) {
-    const token = adminToken.trim()
     const form = forms[provider]
     const issues = providerIssues[provider] ?? []
 
-    if (!token) {
-      setError('Admin bearer token is required before testing provider connectivity.')
+    if (!accessToken) {
+      setError('Current Supabase session is missing an access token.')
       return
     }
 
@@ -426,13 +401,7 @@ function AdminAiPage() {
     setError(null)
 
     try {
-      const response = await fetch('/api/admin/ai-config-test', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...buildTokenHeader(token),
-        },
-        body: JSON.stringify({
+      const payload = await testAdminAiProviderConfig(accessToken, {
           provider,
           displayName: form.display_name,
           enabled: form.enabled,
@@ -445,45 +414,35 @@ function AdminAiPage() {
           apiToken: form.apiToken || undefined,
           clearApiKey: form.clearApiKey,
           clearApiToken: form.clearApiToken,
-          operatorName: operatorName || undefined,
           changeNote: changeNote || undefined,
-        }),
       })
 
-      const payload = (await response.json().catch(() => null)) as
-        | { ok?: boolean; error?: string; result?: AdminAiProviderTestResult; auditLogs?: AdminAiConfigAuditLog[] }
-        | null
-
-      if (!response.ok || !payload?.result) {
-        throw new Error(payload?.error ?? 'Provider connectivity test failed.')
-      }
+      const testResult = payload.result as AdminAiProviderTestResult
 
       startTransition(() => {
         setTestResults((current) => ({
           ...current,
-          [provider]: payload.result!,
+          [provider]: testResult,
         }))
+        if (payload.configs) {
+          setConfigs(payload.configs)
+          setForms(createFormMap(payload.configs))
+        }
         if (payload.auditLogs) {
           setAuditLogs(payload.auditLogs)
         }
       })
 
       setStatus(
-        `${providerLabel(provider)} test passed in ${payload.result.latency_ms} ms using ${payload.result.request_mode} mode.`,
+        `${providerLabel(provider)} test passed in ${testResult.latency_ms} ms using ${testResult.request_mode} mode.`,
       )
     } catch (testError) {
       const message = testError instanceof Error ? testError.message : 'Provider connectivity test failed.'
       setError(message)
 
       try {
-        const reload = await fetch('/api/admin/ai-config?limit=24', {
-          method: 'GET',
-          headers: buildTokenHeader(token),
-        })
-        const payload = (await reload.json().catch(() => null)) as AdminAiConfigConsoleResponse | null
-        if (reload.ok && payload?.auditLogs) {
-          setAuditLogs(payload.auditLogs)
-        }
+        const payload = await loadAdminAiConsole(accessToken, 24)
+        applyConsoleData(payload)
       } catch {
         // Leave the latest local audit log list intact.
       }
@@ -500,9 +459,9 @@ function AdminAiPage() {
           <h1>Operate primary and backup engines like a real production console.</h1>
         </div>
         <div className="note-card">
-          <span>Go-live note</span>
-          <strong>Bootstrap-safe, not final auth</strong>
-          <p>Secret handling is production-minded already. Before full launch, replace the bearer token gate with Supabase admin roles or SSO.</p>
+          <span>Auth gate</span>
+          <strong>Supabase admin session</strong>
+          <p>Only authenticated members with owner, admin or ops role can enter this console and hit the server-side test/save routes.</p>
         </div>
       </section>
 
@@ -513,20 +472,15 @@ function AdminAiPage() {
             <h2>Secure console session</h2>
           </div>
           <p className="section-copy">
-            This page only writes secrets to the server, never reads them back, and now includes audit logs plus provider health checks.
+            This page only writes secrets to the server, never reads them back, and now uses your current Supabase access token instead of a bootstrap bearer secret.
           </p>
-          <div className="field-stack">
-            <label htmlFor="admin-token">Admin bearer token</label>
-            <input
-              id="admin-token"
-              type="password"
-              value={adminToken}
-              onChange={(event) => setAdminToken(event.target.value)}
-              placeholder="Paste the secure admin token for this session"
-            />
+          <div className="stack-block compact-stack">
+            <strong>Session identity</strong>
+            <p>{user?.email ?? 'No active session'}</p>
+            <span>{isConfigured ? 'Supabase Auth is configured for this deployment.' : 'Supabase Auth is not configured in this environment.'}</span>
           </div>
           <div className="form-toolbar">
-            <button type="button" className="primary-action" onClick={loadConfigs} disabled={isLoading}>
+            <button type="button" className="primary-action" onClick={loadConfigs} disabled={isLoading || !accessToken}>
               {isLoading ? 'Loading secure console...' : 'Load secure console'}
             </button>
             <Link className="ghost-link" to="/dashboard">
@@ -543,16 +497,10 @@ function AdminAiPage() {
             <h2>Operator and audit context</h2>
           </div>
           <div className="control-grid">
-            <div className="field-stack">
-              <label htmlFor="operator-name">Operator name</label>
-              <input
-                id="operator-name"
-                type="text"
-                value={operatorName}
-                onChange={(event) => setOperatorName(event.target.value)}
-                placeholder="e.g. Yuhao / Ops Lead"
-              />
-              <span className="field-hint">Used as the actor on save and test audit events.</span>
+            <div className="stack-block compact-stack">
+              <strong>Audit actor</strong>
+              <p>{user?.email ?? 'No active session'}</p>
+              <span>The backend records the operator from the verified Supabase identity, so this field can no longer be spoofed from the browser.</span>
             </div>
             <div className="field-stack field-span-2">
               <label htmlFor="change-note">Change note</label>
@@ -647,7 +595,7 @@ function AdminAiPage() {
                       Secret: {config.api_key_configured || config.api_token_configured ? 'configured' : 'environment or empty'}
                     </span>
                     <span className="suggestion-chip">
-                      Last test: {latestTestResult ? `pass · ${latestTestResult.latency_ms} ms` : latestTestAudit ? `${latestTestAudit.outcome}` : 'not run'}
+                      Last test: {config.last_tested_at ? `${config.last_test_status ?? 'n/a'} · ${formatTimestamp(config.last_tested_at)}` : 'not run'}
                     </span>
                   </div>
 
@@ -808,9 +756,9 @@ function AdminAiPage() {
                     </div>
                     <div className="stack-block compact-stack">
                       <strong>Latest health check</strong>
-                      <p>{latestTestResult ? `${latestTestResult.latency_ms} ms` : latestTestAudit ? latestTestAudit.outcome : 'Not tested'}</p>
+                      <p>{config.last_test_latency_ms !== null ? `${config.last_test_latency_ms} ms` : latestTestResult ? `${latestTestResult.latency_ms} ms` : latestTestAudit ? latestTestAudit.outcome : 'Not tested'}</p>
                       <span>
-                        {latestTestResult?.message ?? latestTestAudit?.message ?? 'Run a test before promoting this provider in production.'}
+                        {config.last_test_message ?? latestTestResult?.message ?? latestTestAudit?.message ?? 'Run a test before promoting this provider in production.'}
                       </span>
                     </div>
                   </div>

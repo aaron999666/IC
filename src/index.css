@@ -92,7 +92,7 @@ button {
   top: 16px;
   z-index: 20;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr auto auto;
   gap: 18px;
   align-items: center;
   padding: 16px 18px;
@@ -188,10 +188,46 @@ button {
   justify-content: flex-end;
 }
 
+.session-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .status-strip span {
   padding: 8px 12px;
   font-size: 0.82rem;
   color: var(--text-soft);
+}
+
+.session-strip span {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.48);
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
+.session-select {
+  min-height: 40px;
+  max-width: 240px;
+  padding: 0 12px;
+  border: 1px solid rgba(22, 36, 54, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+}
+
+.inline-action {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid rgba(22, 36, 54, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text);
 }
 
 .page,
@@ -211,6 +247,14 @@ button {
 
 .page {
   animation: rise-in 500ms ease;
+}
+
+.auth-page {
+  min-height: calc(100vh - 160px);
+}
+
+.auth-grid {
+  align-items: stretch;
 }
 
 .hero-panel {
@@ -1115,6 +1159,10 @@ button {
   }
 
   .status-strip {
+    justify-content: flex-start;
+  }
+
+  .session-strip {
     justify-content: flex-start;
   }
 

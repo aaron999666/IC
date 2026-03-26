@@ -2,14 +2,16 @@ import {
   AiConfigValidationError,
   buildAiConfigAuditSnapshot,
   buildAiConfigAuditSnapshotFromPayload,
-  isAuthorizedAdminRequest,
+  getAdminAiProviderConfigs,
   listAdminAiConfigAuditLogs,
   recordAiConfigAuditEvent,
   resolveDraftRuntimeAiProviderConfig,
+  updateAdminAiProviderTestStatus,
   type AiConfigEnv,
   type AiProvider,
   type AiRequestMode,
 } from '../ai-config-store'
+import { getAdminSession } from './auth'
 import { runAiProviderHealthCheck } from './ai-provider-health'
 
 const corsHeaders = {
@@ -51,18 +53,24 @@ function jsonResponse(data: unknown, status = 200) {
 }
 
 async function ensureAdminAuthorized(request: Request, env: AiConfigEnv) {
-  const authorized = await isAuthorizedAdminRequest(request, env)
+  const adminSession = await getAdminSession(request, env)
 
-  if (!authorized) {
-    return jsonResponse(
-      {
-        error: 'Unauthorized. Provide a valid admin bearer token.',
-      },
-      401,
-    )
+  if (!adminSession) {
+    return {
+      failure: jsonResponse(
+        {
+          error: 'Unauthorized. Sign in with a Supabase user that has owner, admin or ops role.',
+        },
+        401,
+      ),
+      adminSession: null,
+    }
   }
 
-  return null
+  return {
+    failure: null,
+    adminSession,
+  }
 }
 
 export function onRequestOptions() {
@@ -73,9 +81,9 @@ export function onRequestOptions() {
 }
 
 export async function onRequestPost(context: PagesFunctionContext<AiConfigEnv>) {
-  const authFailure = await ensureAdminAuthorized(context.request, context.env)
-  if (authFailure) {
-    return authFailure
+  const authorization = await ensureAdminAuthorized(context.request, context.env)
+  if (authorization.failure) {
+    return authorization.failure
   }
 
   const body = (await context.request.json().catch(() => null)) as TestRequestBody | null
@@ -105,13 +113,21 @@ export async function onRequestPost(context: PagesFunctionContext<AiConfigEnv>) 
     })
 
     const result = await runAiProviderHealthCheck(context.env, runtimeConfig)
+    await updateAdminAiProviderTestStatus(
+      context.env,
+      body.provider,
+      'success',
+      result.message,
+      result.latency_ms,
+      result.tested_at,
+    )
 
     try {
       await recordAiConfigAuditEvent(context.env, {
         provider: body.provider,
         action: 'test',
         outcome: 'success',
-        operatorName: body.operatorName,
+        operatorName: authorization.adminSession.operatorName,
         changeNote: body.changeNote,
         configSnapshot: buildAiConfigAuditSnapshot(runtimeConfig),
         message: result.message,
@@ -124,17 +140,27 @@ export async function onRequestPost(context: PagesFunctionContext<AiConfigEnv>) 
     return jsonResponse({
       ok: true,
       result,
+      configs: await getAdminAiProviderConfigs(context.env).catch(() => []),
       auditLogs: await listAdminAiConfigAuditLogs(context.env, 24).catch(() => []),
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'AI provider health check failed.'
+
+    await updateAdminAiProviderTestStatus(
+      context.env,
+      body.provider,
+      'failure',
+      message,
+      null,
+      new Date().toISOString(),
+    ).catch(() => undefined)
 
     try {
       await recordAiConfigAuditEvent(context.env, {
         provider: body.provider,
         action: 'test',
         outcome: 'failure',
-        operatorName: body.operatorName,
+        operatorName: authorization.adminSession.operatorName,
         changeNote: body.changeNote,
         configSnapshot: buildAiConfigAuditSnapshotFromPayload({
           provider: body.provider,
@@ -159,6 +185,7 @@ export async function onRequestPost(context: PagesFunctionContext<AiConfigEnv>) 
     return jsonResponse(
       {
         error: message,
+        configs: await getAdminAiProviderConfigs(context.env).catch(() => []),
         auditLogs: await listAdminAiConfigAuditLogs(context.env, 24).catch(() => []),
       },
       error instanceof AiConfigValidationError ? 400 : 502,
