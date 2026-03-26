@@ -4,6 +4,8 @@ interface AiBinding {
 
 export type AiProvider = 'gemini' | 'workers-ai'
 export type AiRequestMode = 'api-key' | 'binding' | 'rest'
+export type AiConfigAuditAction = 'save' | 'test'
+export type AiConfigAuditOutcome = 'success' | 'failure'
 
 export interface AiConfigEnv {
   AI?: AiBinding
@@ -39,6 +41,19 @@ interface StoredAiConfigRow {
   updated_by: string | null
   created_at: string
   updated_at: string
+}
+
+interface StoredAiConfigAuditRow {
+  id: number
+  provider: AiProvider
+  action: AiConfigAuditAction
+  outcome: AiConfigAuditOutcome
+  operator_name: string | null
+  change_note: string | null
+  config_snapshot: Record<string, unknown> | null
+  message: string | null
+  latency_ms: number | null
+  created_at: string
 }
 
 export interface RuntimeAiProviderConfig {
@@ -89,6 +104,37 @@ export interface UpsertAiProviderPayload {
   updatedBy?: string | null
 }
 
+export interface AiConfigAuditLog {
+  id: number
+  provider: AiProvider
+  action: AiConfigAuditAction
+  outcome: AiConfigAuditOutcome
+  operator_name: string | null
+  change_note: string | null
+  config_snapshot: Record<string, unknown>
+  message: string | null
+  latency_ms: number | null
+  created_at: string
+}
+
+export interface RecordAiConfigAuditEventInput {
+  provider: AiProvider
+  action: AiConfigAuditAction
+  outcome: AiConfigAuditOutcome
+  operatorName?: string | null
+  changeNote?: string | null
+  configSnapshot?: Record<string, unknown>
+  message?: string | null
+  latencyMs?: number | null
+}
+
+export class AiConfigValidationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'AiConfigValidationError'
+  }
+}
+
 let runtimeConfigCache:
   | {
       expiresAt: number
@@ -101,6 +147,23 @@ function parsePositiveInteger(value: string | undefined, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
+function trimOptional(value: string | null | undefined) {
+  const trimmed = value?.trim() ?? ''
+  return trimmed || null
+}
+
+function normalizePriority(value: number | undefined, fallback: number) {
+  if (value === undefined) {
+    return fallback
+  }
+
+  if (!Number.isInteger(value) || value < 1 || value > 999) {
+    throw new AiConfigValidationError('Priority must be an integer between 1 and 999.')
+  }
+
+  return value
+}
+
 function normalizeRequestMode(value: string | null | undefined, provider: AiProvider): AiRequestMode {
   if (value === 'binding' || value === 'rest' || value === 'api-key') {
     return value
@@ -111,6 +174,77 @@ function normalizeRequestMode(value: string | null | undefined, provider: AiProv
   }
 
   return 'api-key'
+}
+
+function validateUrl(value: string | null, label: string) {
+  if (!value) {
+    return
+  }
+
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+      throw new Error('invalid protocol')
+    }
+  } catch {
+    throw new AiConfigValidationError(`${label} must be a valid URL.`)
+  }
+}
+
+function validateDisplayName(value: string) {
+  if (!value.trim()) {
+    throw new AiConfigValidationError('Display name is required.')
+  }
+
+  if (value.trim().length > 80) {
+    throw new AiConfigValidationError('Display name must stay under 80 characters.')
+  }
+}
+
+function validateModel(value: string) {
+  if (!value.trim()) {
+    throw new AiConfigValidationError('Model is required.')
+  }
+
+  if (value.trim().length > 160) {
+    throw new AiConfigValidationError('Model must stay under 160 characters.')
+  }
+}
+
+function validateOperatorName(value: string | null | undefined) {
+  const trimmed = trimOptional(value)
+  if (!trimmed) {
+    return null
+  }
+
+  if (trimmed.length > 80) {
+    throw new AiConfigValidationError('Operator name must stay under 80 characters.')
+  }
+
+  return trimmed
+}
+
+function validateChangeNote(value: string | null | undefined) {
+  const trimmed = trimOptional(value)
+  if (!trimmed) {
+    return null
+  }
+
+  if (trimmed.length > 280) {
+    throw new AiConfigValidationError('Change note must stay under 280 characters.')
+  }
+
+  return trimmed
+}
+
+function validateRequestMode(provider: AiProvider, requestMode: AiRequestMode) {
+  if (provider === 'gemini' && requestMode !== 'api-key') {
+    throw new AiConfigValidationError('Gemini only supports `api-key` mode in this console.')
+  }
+
+  if (provider === 'workers-ai' && requestMode === 'api-key') {
+    throw new AiConfigValidationError('Workers AI request mode must be `binding` or `rest`.')
+  }
 }
 
 function getWorkersEnvMode(env: AiConfigEnv): AiRequestMode {
@@ -417,6 +551,79 @@ function toRedactedAdminConfig(row: StoredAiConfigRow): AdminAiProviderConfig {
   }
 }
 
+function toAuditLog(row: StoredAiConfigAuditRow): AiConfigAuditLog {
+  return {
+    id: row.id,
+    provider: row.provider,
+    action: row.action,
+    outcome: row.outcome,
+    operator_name: row.operator_name,
+    change_note: row.change_note,
+    config_snapshot: row.config_snapshot ?? {},
+    message: row.message,
+    latency_ms: row.latency_ms,
+    created_at: row.created_at,
+  }
+}
+
+async function getStoredConfigByProvider(env: AiConfigEnv, provider: AiProvider) {
+  const rows = await supabaseFetch<StoredAiConfigRow[]>(
+    env,
+    `/rest/v1/admin_ai_provider_configs?provider=eq.${provider}&select=*&limit=1`,
+    { method: 'GET' },
+  )
+
+  return rows[0] ?? null
+}
+
+function buildConfigSnapshot(config: RuntimeAiProviderConfig) {
+  return {
+    provider: config.provider,
+    display_name: config.display_name,
+    enabled: config.enabled,
+    priority: config.priority,
+    request_mode: config.request_mode,
+    model: config.model,
+    base_url: config.base_url,
+    account_id_configured: Boolean(config.account_id),
+    api_key_configured: Boolean(config.api_key),
+    api_token_configured: Boolean(config.api_token),
+    source: config.source,
+  }
+}
+
+export function buildAiConfigAuditSnapshotFromPayload(payload: UpsertAiProviderPayload) {
+  return {
+    provider: payload.provider,
+    display_name: trimOptional(payload.displayName),
+    enabled: payload.enabled ?? null,
+    priority: payload.priority ?? null,
+    request_mode: payload.requestMode ?? null,
+    model: trimOptional(payload.model),
+    base_url_configured: Boolean(trimOptional(payload.baseUrl)),
+    account_id_configured: Boolean(trimOptional(payload.accountId)),
+    api_key_supplied: Boolean(trimOptional(payload.apiKey)),
+    api_token_supplied: Boolean(trimOptional(payload.apiToken)),
+    clear_api_key: Boolean(payload.clearApiKey),
+    clear_api_token: Boolean(payload.clearApiToken),
+  }
+}
+
+function validateResolvedConfig(config: RuntimeAiProviderConfig) {
+  validateDisplayName(config.display_name)
+  validateModel(config.model)
+  validateUrl(config.base_url, 'Base URL')
+  validateRequestMode(config.provider, config.request_mode)
+
+  if (config.provider === 'workers-ai' && config.request_mode === 'rest' && !config.account_id) {
+    throw new AiConfigValidationError('Workers AI REST mode requires an account ID.')
+  }
+}
+
+export function buildAiConfigAuditSnapshot(config: RuntimeAiProviderConfig) {
+  return buildConfigSnapshot(config)
+}
+
 export function clearAiConfigCache() {
   runtimeConfigCache = null
 }
@@ -427,6 +634,53 @@ export async function getAdminAiProviderConfigs(env: AiConfigEnv) {
   const storedConfigs = storedRows.map(toRedactedAdminConfig)
 
   return mergeAdminConfigs(defaults, storedConfigs)
+}
+
+export async function listAdminAiConfigAuditLogs(env: AiConfigEnv, limit = 24) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+    return []
+  }
+
+  const safeLimit = Math.min(Math.max(limit, 1), 100)
+  const rows = await supabaseFetch<StoredAiConfigAuditRow[]>(
+    env,
+    `/rest/v1/admin_ai_config_audit_logs?select=*&order=created_at.desc,id.desc&limit=${safeLimit}`,
+    { method: 'GET' },
+  )
+
+  return rows.map(toAuditLog)
+}
+
+export async function recordAiConfigAuditEvent(env: AiConfigEnv, event: RecordAiConfigAuditEventInput) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+    return
+  }
+
+  const operatorName = validateOperatorName(event.operatorName)
+  const changeNote = validateChangeNote(event.changeNote)
+
+  await supabaseFetch(
+    env,
+    '/rest/v1/admin_ai_config_audit_logs',
+    {
+      method: 'POST',
+      headers: {
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify([
+        {
+          provider: event.provider,
+          action: event.action,
+          outcome: event.outcome,
+          operator_name: operatorName,
+          change_note: changeNote,
+          config_snapshot: event.configSnapshot ?? {},
+          message: trimOptional(event.message) ?? null,
+          latency_ms: event.latencyMs ?? null,
+        },
+      ]),
+    },
+  )
 }
 
 export async function resolveRuntimeAiProviderConfigs(env: AiConfigEnv, forceRefresh = false) {
@@ -455,14 +709,75 @@ export async function resolveRuntimeAiProviderConfigs(env: AiConfigEnv, forceRef
   return merged
 }
 
-async function getStoredConfigByProvider(env: AiConfigEnv, provider: AiProvider) {
-  const rows = await supabaseFetch<StoredAiConfigRow[]>(
-    env,
-    `/rest/v1/admin_ai_provider_configs?provider=eq.${provider}&select=*&limit=1`,
-    { method: 'GET' },
-  )
+export async function resolveDraftRuntimeAiProviderConfig(env: AiConfigEnv, payload: UpsertAiProviderPayload) {
+  const existing = await getStoredConfigByProvider(env, payload.provider).catch(() => null)
+  const fallback = buildEnvFallbackConfigs(env).find((config) => config.provider === payload.provider)
 
-  return rows[0] ?? null
+  const resolvedDisplayName =
+    trimOptional(payload.displayName) ||
+    existing?.display_name ||
+    fallback?.display_name ||
+    payload.provider
+
+  const resolvedEnabled = payload.enabled ?? existing?.enabled ?? fallback?.enabled ?? true
+  const resolvedPriority = normalizePriority(
+    payload.priority,
+    existing?.priority ?? fallback?.priority ?? 100,
+  )
+  const resolvedRequestMode = normalizeRequestMode(
+    payload.requestMode ?? existing?.request_mode ?? fallback?.request_mode,
+    payload.provider,
+  )
+  const resolvedModel =
+    trimOptional(payload.model) ||
+    existing?.model ||
+    fallback?.model ||
+    ''
+
+  const resolvedBaseUrl =
+    payload.baseUrl === undefined
+      ? existing?.base_url ?? fallback?.base_url ?? null
+      : trimOptional(payload.baseUrl)
+
+  const resolvedAccountId =
+    payload.accountId === undefined
+      ? existing?.account_id ?? fallback?.account_id ?? null
+      : trimOptional(payload.accountId)
+
+  const resolvedApiKey = payload.clearApiKey
+    ? null
+    : trimOptional(payload.apiKey) ??
+      (existing?.api_key_ciphertext && env.ADMIN_ENCRYPTION_KEY
+        ? await decryptSecret(env, existing.api_key_ciphertext)
+        : null) ??
+      fallback?.api_key ??
+      null
+
+  const resolvedApiToken = payload.clearApiToken
+    ? null
+    : trimOptional(payload.apiToken) ??
+      (existing?.api_token_ciphertext && env.ADMIN_ENCRYPTION_KEY
+        ? await decryptSecret(env, existing.api_token_ciphertext)
+        : null) ??
+      fallback?.api_token ??
+      null
+
+  const runtimeConfig: RuntimeAiProviderConfig = {
+    provider: payload.provider,
+    display_name: resolvedDisplayName,
+    enabled: resolvedEnabled,
+    priority: resolvedPriority,
+    request_mode: resolvedRequestMode,
+    model: resolvedModel,
+    base_url: resolvedBaseUrl,
+    api_key: resolvedApiKey,
+    api_token: resolvedApiToken,
+    account_id: resolvedAccountId,
+    source: existing ? 'database' : 'environment',
+  }
+
+  validateResolvedConfig(runtimeConfig)
+  return runtimeConfig
 }
 
 export async function upsertAdminAiProviderConfig(env: AiConfigEnv, payload: UpsertAiProviderPayload) {
@@ -474,74 +789,51 @@ export async function upsertAdminAiProviderConfig(env: AiConfigEnv, payload: Ups
     throw new Error('ADMIN_ENCRYPTION_KEY is required to securely store AI provider secrets.')
   }
 
+  const resolvedRuntime = await resolveDraftRuntimeAiProviderConfig(env, payload)
   const existing = await getStoredConfigByProvider(env, payload.provider)
-  const fallback = buildEnvFallbackConfigs(env).find((config) => config.provider === payload.provider)
-
-  const resolvedDisplayName =
-    payload.displayName?.trim() ||
-    existing?.display_name ||
-    fallback?.display_name ||
-    payload.provider
-
-  const resolvedEnabled = payload.enabled ?? existing?.enabled ?? true
-  const resolvedPriority = payload.priority ?? existing?.priority ?? fallback?.priority ?? 100
-  const resolvedRequestMode = normalizeRequestMode(
-    payload.requestMode ?? existing?.request_mode ?? fallback?.request_mode,
-    payload.provider,
-  )
-  const resolvedModel = payload.model?.trim() || existing?.model || fallback?.model
-
-  if (!resolvedModel) {
-    throw new Error('Model is required.')
-  }
 
   const nextApiKeyCiphertext = payload.clearApiKey
     ? null
-    : payload.apiKey?.trim()
-      ? await encryptSecret(env, payload.apiKey.trim())
+    : trimOptional(payload.apiKey)
+      ? await encryptSecret(env, trimOptional(payload.apiKey) ?? '')
       : existing?.api_key_ciphertext ?? null
 
   const nextApiTokenCiphertext = payload.clearApiToken
     ? null
-    : payload.apiToken?.trim()
-      ? await encryptSecret(env, payload.apiToken.trim())
+    : trimOptional(payload.apiToken)
+      ? await encryptSecret(env, trimOptional(payload.apiToken) ?? '')
       : existing?.api_token_ciphertext ?? null
 
   const nextApiKeyHint = payload.clearApiKey
     ? null
-    : payload.apiKey?.trim()
-      ? buildHint(payload.apiKey.trim())
+    : trimOptional(payload.apiKey)
+      ? buildHint(trimOptional(payload.apiKey) ?? '')
       : existing?.api_key_hint ?? null
 
   const nextApiTokenHint = payload.clearApiToken
     ? null
-    : payload.apiToken?.trim()
-      ? buildHint(payload.apiToken.trim())
+    : trimOptional(payload.apiToken)
+      ? buildHint(trimOptional(payload.apiToken) ?? '')
       : existing?.api_token_hint ?? null
 
   const row = {
     provider: payload.provider,
-    display_name: resolvedDisplayName,
-    enabled: resolvedEnabled,
-    priority: resolvedPriority,
-    request_mode: resolvedRequestMode,
-    model: resolvedModel,
-    base_url:
-      payload.baseUrl === undefined
-        ? existing?.base_url ?? fallback?.base_url ?? null
-        : payload.baseUrl?.trim() || null,
-    account_id:
-      payload.accountId === undefined
-        ? existing?.account_id ?? fallback?.account_id ?? null
-        : payload.accountId?.trim() || null,
+    display_name: resolvedRuntime.display_name,
+    enabled: resolvedRuntime.enabled,
+    priority: resolvedRuntime.priority,
+    request_mode: resolvedRuntime.request_mode,
+    model: resolvedRuntime.model,
+    base_url: resolvedRuntime.base_url,
+    account_id: resolvedRuntime.account_id,
     api_key_ciphertext: nextApiKeyCiphertext,
     api_key_hint: nextApiKeyCiphertext ? nextApiKeyHint : null,
     api_token_ciphertext: nextApiTokenCiphertext,
     api_token_hint: nextApiTokenCiphertext ? nextApiTokenHint : null,
     metadata: {
       ui_managed: true,
+      last_saved_via: 'admin-console',
     },
-    updated_by: payload.updatedBy?.trim() || 'admin-console',
+    updated_by: validateOperatorName(payload.updatedBy) ?? 'admin-console',
   }
 
   await supabaseFetch(

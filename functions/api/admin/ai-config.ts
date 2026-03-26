@@ -1,6 +1,12 @@
 import {
+  AiConfigValidationError,
+  buildAiConfigAuditSnapshot,
+  buildAiConfigAuditSnapshotFromPayload,
   getAdminAiProviderConfigs,
   isAuthorizedAdminRequest,
+  listAdminAiConfigAuditLogs,
+  recordAiConfigAuditEvent,
+  resolveDraftRuntimeAiProviderConfig,
   type AiConfigEnv,
   type AiProvider,
   type AiRequestMode,
@@ -32,6 +38,8 @@ interface UpdateRequestBody {
   apiToken?: string
   clearApiToken?: boolean
   updatedBy?: string | null
+  operatorName?: string | null
+  changeNote?: string | null
 }
 
 function jsonResponse(data: unknown, status = 200) {
@@ -46,6 +54,11 @@ function jsonResponse(data: unknown, status = 200) {
 
 function badRequest(message: string) {
   return jsonResponse({ error: message }, 400)
+}
+
+function parseAuditLimit(url: URL) {
+  const parsed = Number.parseInt(url.searchParams.get('limit') ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 100) : 24
 }
 
 async function ensureAdminAuthorized(request: Request, env: AiConfigEnv) {
@@ -63,6 +76,73 @@ async function ensureAdminAuthorized(request: Request, env: AiConfigEnv) {
   return null
 }
 
+async function loadConsoleData(env: AiConfigEnv, limit: number) {
+  const [configs, auditLogs] = await Promise.all([
+    getAdminAiProviderConfigs(env),
+    listAdminAiConfigAuditLogs(env, limit),
+  ])
+
+  return { configs, auditLogs }
+}
+
+async function recordSaveAudit(
+  env: AiConfigEnv,
+  body: UpdateRequestBody,
+  outcome: 'success' | 'failure',
+  message: string,
+) {
+  if (!body.provider) {
+    return
+  }
+
+  try {
+    const snapshot =
+      outcome === 'success'
+        ? buildAiConfigAuditSnapshot(
+            await resolveDraftRuntimeAiProviderConfig(env, {
+              provider: body.provider,
+              displayName: body.displayName,
+              enabled: body.enabled,
+              priority: body.priority,
+              requestMode: body.requestMode,
+              model: body.model,
+              baseUrl: body.baseUrl,
+              accountId: body.accountId,
+              apiKey: body.apiKey,
+              clearApiKey: body.clearApiKey,
+              apiToken: body.apiToken,
+              clearApiToken: body.clearApiToken,
+            }),
+          )
+        : buildAiConfigAuditSnapshotFromPayload({
+            provider: body.provider,
+            displayName: body.displayName,
+            enabled: body.enabled,
+            priority: body.priority,
+            requestMode: body.requestMode,
+            model: body.model,
+            baseUrl: body.baseUrl,
+            accountId: body.accountId,
+            apiKey: body.apiKey,
+            clearApiKey: body.clearApiKey,
+            apiToken: body.apiToken,
+            clearApiToken: body.clearApiToken,
+          })
+
+    await recordAiConfigAuditEvent(env, {
+      provider: body.provider,
+      action: 'save',
+      outcome,
+      operatorName: body.operatorName ?? body.updatedBy,
+      changeNote: body.changeNote,
+      configSnapshot: snapshot,
+      message,
+    })
+  } catch {
+    // Keep save flows resilient even if audit recording fails.
+  }
+}
+
 export function onRequestOptions() {
   return new Response(null, {
     status: 204,
@@ -77,8 +157,8 @@ export async function onRequestGet(context: PagesFunctionContext<AiConfigEnv>) {
   }
 
   try {
-    const configs = await getAdminAiProviderConfigs(context.env)
-    return jsonResponse({ configs })
+    const data = await loadConsoleData(context.env, parseAuditLimit(new URL(context.request.url)))
+    return jsonResponse(data)
   } catch (error) {
     return jsonResponse(
       {
@@ -106,7 +186,7 @@ export async function onRequestPost(context: PagesFunctionContext<AiConfigEnv>) 
   }
 
   try {
-    const configs = await upsertAdminAiProviderConfig(context.env, {
+    await upsertAdminAiProviderConfig(context.env, {
       provider: body.provider,
       displayName: body.displayName,
       enabled: body.enabled,
@@ -119,16 +199,22 @@ export async function onRequestPost(context: PagesFunctionContext<AiConfigEnv>) 
       clearApiKey: body.clearApiKey,
       apiToken: body.apiToken,
       clearApiToken: body.clearApiToken,
-      updatedBy: body.updatedBy,
+      updatedBy: body.operatorName ?? body.updatedBy,
     })
 
-    return jsonResponse({ ok: true, configs })
+    await recordSaveAudit(context.env, body, 'success', 'Provider configuration saved successfully.')
+
+    const data = await loadConsoleData(context.env, 24)
+    return jsonResponse({ ok: true, ...data })
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to save admin AI configuration.'
+    await recordSaveAudit(context.env, body, 'failure', message)
+
     return jsonResponse(
       {
-        error: error instanceof Error ? error.message : 'Failed to save admin AI configuration.',
+        error: message,
       },
-      500,
+      error instanceof AiConfigValidationError ? 400 : 500,
     )
   }
 }

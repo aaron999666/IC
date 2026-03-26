@@ -14,7 +14,7 @@
 - live AI BOM workspace wired to Cloudflare Pages Functions
 - dual-engine BOM parsing strategy docs at `docs/bom-dual-engine-strategy.md`
 - SEO and GEO assets including route-level meta, JSON-LD, `robots.txt`, `sitemap.xml`, `llms.txt` and `og-cover.svg`
-- admin AI provider console with encrypted secret storage and runtime fallback control
+- admin AI provider console with encrypted secret storage, runtime fallback control, health checks and audit logs
 - Supabase base schema at `supabase/migrations/20260326190000_initial_matchrail.sql`
 - pure information-flow MVP layer at `supabase/migrations/20260326210000_add_information_flow_mvp_layer.sql`
 - Cloudflare Pages config in `wrangler.toml`
@@ -143,13 +143,18 @@ Security model in this repo:
 - provider secrets are encrypted before being stored in Supabase
 - runtime parsing decrypts them only inside the Pages Function
 - if secure admin storage is unavailable, parsing falls back to environment defaults
+- provider draft configs can be health-checked server-side before saving
+- save and test events are written into an audit log table for operator traceability
 
 Related files:
 
 - `functions/api/admin/ai-config.ts`
+- `functions/api/admin/ai-config-test.ts`
+- `functions/api/admin/ai-provider-health.ts`
 - `functions/api/ai-config-store.ts`
 - `src/pages/AdminAiPage.tsx`
 - `supabase/migrations/20260327013000_add_admin_ai_provider_configs.sql`
+- `supabase/migrations/20260327030000_add_admin_ai_config_audit_logs.sql`
 
 ## GitHub
 

@@ -113,3 +113,31 @@ export type AdminAiProviderConfig = {
   updated_by: string | null
   updated_at: string | null
 }
+
+export type AdminAiConfigAuditLog = {
+  id: number
+  provider: 'gemini' | 'workers-ai'
+  action: 'save' | 'test'
+  outcome: 'success' | 'failure'
+  operator_name: string | null
+  change_note: string | null
+  config_snapshot: Record<string, unknown>
+  message: string | null
+  latency_ms: number | null
+  created_at: string
+}
+
+export type AdminAiConfigConsoleResponse = {
+  configs: AdminAiProviderConfig[]
+  auditLogs: AdminAiConfigAuditLog[]
+}
+
+export type AdminAiProviderTestResult = {
+  provider: 'gemini' | 'workers-ai'
+  model: string
+  request_mode: 'api-key' | 'binding' | 'rest'
+  source: 'database' | 'environment'
+  latency_ms: number
+  message: string
+  tested_at: string
+}
