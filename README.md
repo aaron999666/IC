@@ -15,6 +15,8 @@ IC MatchRail is a React + TypeScript frontend starter for an IC chip B2B brokera
 - data center view for dictionary pipeline and Supabase schema spine
 - seller and buyer dashboard for RFQ, inventory sync and points ledger
 - Cloudflare Pages SPA fallback via `public/_redirects`
+- Cloudflare Pages Function example for AI BOM parsing at `functions/api/bom/parse.ts`
+- Supabase bootstrap schema at `supabase/migrations/20260326190000_initial_matchrail.sql`
 
 ## Stack
 
@@ -43,6 +45,36 @@ Copy values from `.env.example` when you wire real services:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_APP_ENV`
+
+For Cloudflare Pages Functions, copy values from `.dev.vars.example` for local edge testing:
+
+- `OPENAI_API_KEY`
+- `OPENAI_BOM_MODEL`
+- `OPENAI_BASE_URL`
+- `BOM_MAX_LINES`
+- `BOM_FREE_LINES`
+
+## AI BOM endpoint
+
+The example Pages Function lives at `functions/api/bom/parse.ts` and accepts:
+
+```json
+{
+  "text": "STM32 F103 C8 T6, 8000\nMAX 3232ESE, 12000"
+}
+```
+
+It returns structured rows plus billable line metadata so you can hook it into the points ledger later.
+
+## Supabase schema
+
+The migration file creates:
+
+- company and membership tables for KYB and RLS scoping
+- chip dictionary tables for manufacturers, families, packages, parts, aliases and datasheets
+- vector storage plus a `find_similar_parts(...)` SQL function for substitute lookup
+- inventory, RFQ, quotes and escrow tables for the trading workflow
+- BOM parse job tables and points ledger tables for AI cost accounting
 
 ## Suggested next implementation steps
 
