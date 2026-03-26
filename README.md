@@ -17,6 +17,7 @@ IC MatchRail is a React + TypeScript frontend starter for an IC chip B2B brokera
 - Cloudflare Pages SPA fallback via `public/_redirects`
 - Cloudflare Pages Function example for AI BOM parsing at `functions/api/bom/parse.ts`
 - Supabase bootstrap schema at `supabase/migrations/20260326190000_initial_matchrail.sql`
+- Information-flow MVP layer at `supabase/migrations/20260326210000_add_information_flow_mvp_layer.sql`
 
 ## Stack
 
@@ -75,6 +76,33 @@ The migration file creates:
 - vector storage plus a `find_similar_parts(...)` SQL function for substitute lookup
 - inventory, RFQ, quotes and escrow tables for the trading workflow
 - BOM parse job tables and points ledger tables for AI cost accounting
+
+The second migration adds the lighter pure-information-flow layer:
+
+- `company_private_profiles` for private seller contact data and credit score
+- `public_inventory_search` for redacted live inventory search results
+- `search_public_inventory(...)` for public RPC-based inventory lookup
+- `unlock_inventory_contact(...)` for server-side points deduction plus contact reveal
+- `inventory_contact_unlocks` for append-only unlock history
+
+## Example RPC flow
+
+Public search:
+
+```sql
+select *
+from public.search_public_inventory('STM32F103', 20);
+```
+
+Contact unlock after the buyer is authenticated:
+
+```sql
+select *
+from public.unlock_inventory_contact(
+  'inventory-listing-uuid',
+  'buyer-company-uuid'
+);
+```
 
 ## Suggested next implementation steps
 
