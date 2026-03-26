@@ -1,4 +1,9 @@
 import {
+  resolveRuntimeAiProviderConfigs,
+  type AiConfigEnv,
+  type RuntimeAiProviderConfig,
+} from '../ai-config-store'
+import {
   BOM_BRAND_ALIASES,
   BOM_OUTPUT_SCHEMA,
   BOM_PROMPT_VERSION,
@@ -14,7 +19,7 @@ interface AiBinding {
   run(model: string, input: unknown): Promise<unknown>
 }
 
-interface Env {
+interface Env extends AiConfigEnv {
   AI?: AiBinding
   GEMINI_API_KEY?: string
   GEMINI_MODEL?: string
@@ -270,19 +275,20 @@ function extractWorkersAIText(payload: unknown) {
   return JSON.stringify(result)
 }
 
-async function callGeminiProvider(env: Env, text: string) {
-  const apiKey = env.GEMINI_API_KEY
+async function callGeminiProvider(config: RuntimeAiProviderConfig, text: string) {
+  const apiKey = config.api_key
   if (!apiKey) {
     throw new Error('Missing GEMINI_API_KEY')
   }
 
-  const model = env.GEMINI_MODEL ?? 'gemini-1.5-flash'
-  const baseUrl = env.GEMINI_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta'
+  const model = config.model
+  const baseUrl = config.base_url ?? 'https://generativelanguage.googleapis.com/v1beta'
 
-  const response = await fetch(`${baseUrl}/models/${model}:generateContent?key=${apiKey}`, {
+  const response = await fetch(`${baseUrl}/models/${model}:generateContent`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
     },
     body: JSON.stringify({
       system_instruction: {
@@ -322,13 +328,8 @@ async function callGeminiProvider(env: Env, text: string) {
   }
 }
 
-async function callWorkersAiProvider(env: Env, text: string) {
-  if (!env.AI) {
-    throw new Error('Missing Cloudflare AI binding')
-  }
-
-  const model = env.WORKERS_AI_MODEL ?? '@cf/meta/llama-3.1-8b-instruct-fast'
-  const payload = await env.AI.run(model, {
+function buildWorkersAiPayload(text: string) {
+  return {
     messages: [
       { role: 'system', content: BOM_SYSTEM_PROMPT },
       {
@@ -342,7 +343,51 @@ async function callWorkersAiProvider(env: Env, text: string) {
     },
     max_tokens: 2048,
     temperature: 0,
-  })
+  }
+}
+
+async function callWorkersAiProvider(env: Env, config: RuntimeAiProviderConfig, text: string) {
+  const model = config.model
+  const requestPayload = buildWorkersAiPayload(text)
+
+  let payload: unknown
+
+  if (config.request_mode === 'binding') {
+    if (!env.AI) {
+      throw new Error('Missing Cloudflare AI binding')
+    }
+
+    payload = await env.AI.run(model, requestPayload)
+  } else {
+    const accountId = config.account_id
+    const apiToken = config.api_token
+    const baseUrl = config.base_url ?? 'https://api.cloudflare.com/client/v4'
+
+    if (!accountId || !apiToken) {
+      throw new Error('Workers AI REST mode requires both account_id and api_token.')
+    }
+
+    const endpoint = `${baseUrl.replace(/\/$/, '')}/accounts/${accountId}/ai/run/${model.replace(/^\/+/, '')}`
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify(requestPayload),
+    })
+
+    payload = await response.json().catch(() => null)
+
+    if (!response.ok) {
+      const message =
+        payload && typeof payload === 'object' && 'errors' in payload
+          ? JSON.stringify((payload as { errors?: unknown }).errors)
+          : `Workers AI request failed with ${response.status}`
+
+      throw new Error(message)
+    }
+  }
 
   const parsed = JSON.parse(extractWorkersAIText(payload)) as unknown
 
@@ -396,125 +441,79 @@ export async function onRequestPost(context: PagesFunctionContext<Env>) {
 
   const providerAttempts: ProviderAttempt[] = []
   const billableLines = Math.max(nonEmptyLines.length - freeLines, 0)
+  const runtimeConfigs = await resolveRuntimeAiProviderConfigs(env)
 
-  try {
-    const geminiResult = await callGeminiProvider(env, text)
-    providerAttempts.push({
-      provider: geminiResult.provider,
-      model: geminiResult.model,
-      ok: true,
-    })
-    const storage = await persistBomParseResult({
-      env,
-      sourceText: text,
-      inputLines: nonEmptyLines.length,
-      billableLines,
-      providerUsed: geminiResult.provider,
-      providerModel: geminiResult.model,
-      providersTried: providerAttempts,
-      promptVersion: BOM_PROMPT_VERSION,
-      items: geminiResult.items,
-      request: persistenceRequest,
-    })
+  for (let attemptIndex = 0; attemptIndex < runtimeConfigs.length; attemptIndex += 1) {
+    const config = runtimeConfigs[attemptIndex]
 
-    if (storage.status === 'insufficient_points') {
-      return jsonResponse(
-        {
-          error: storage.error ?? 'Insufficient points balance for billable BOM parsing.',
-          prompt_version: BOM_PROMPT_VERSION,
-          provider_used: geminiResult.provider,
-          provider_model: geminiResult.model,
-          fallback_used: false,
-          providers_tried: providerAttempts,
-          input_lines: nonEmptyLines.length,
-          free_lines: freeLines,
-          billable_lines: billableLines,
-          storage,
-        },
-        402,
-      )
+    if (!config.enabled) {
+      continue
     }
 
-    return jsonResponse({
-      request_id: crypto.randomUUID(),
-      prompt_version: BOM_PROMPT_VERSION,
-      provider_used: geminiResult.provider,
-      provider_model: geminiResult.model,
-      fallback_used: false,
-      providers_tried: providerAttempts,
-      input_lines: nonEmptyLines.length,
-      free_lines: freeLines,
-      billable_lines: billableLines,
-      items: geminiResult.items,
-      storage,
-    })
-  } catch (error) {
-    providerAttempts.push({
-      provider: 'gemini',
-      model: env.GEMINI_MODEL ?? 'gemini-1.5-flash',
-      ok: false,
-      error: error instanceof Error ? error.message : 'Gemini failed',
-    })
-  }
+    try {
+      const result =
+        config.provider === 'gemini'
+          ? await callGeminiProvider(config, text)
+          : await callWorkersAiProvider(env, config, text)
 
-  try {
-    const workersResult = await callWorkersAiProvider(env, text)
-    providerAttempts.push({
-      provider: workersResult.provider,
-      model: workersResult.model,
-      ok: true,
-    })
-    const storage = await persistBomParseResult({
-      env,
-      sourceText: text,
-      inputLines: nonEmptyLines.length,
-      billableLines,
-      providerUsed: workersResult.provider,
-      providerModel: workersResult.model,
-      providersTried: providerAttempts,
-      promptVersion: BOM_PROMPT_VERSION,
-      items: workersResult.items,
-      request: persistenceRequest,
-    })
+      providerAttempts.push({
+        provider: result.provider,
+        model: result.model,
+        ok: true,
+      })
 
-    if (storage.status === 'insufficient_points') {
-      return jsonResponse(
-        {
-          error: storage.error ?? 'Insufficient points balance for billable BOM parsing.',
-          prompt_version: BOM_PROMPT_VERSION,
-          provider_used: workersResult.provider,
-          provider_model: workersResult.model,
-          fallback_used: true,
-          providers_tried: providerAttempts,
-          input_lines: nonEmptyLines.length,
-          free_lines: freeLines,
-          billable_lines: billableLines,
-          storage,
-        },
-        402,
-      )
+      const storage = await persistBomParseResult({
+        env,
+        sourceText: text,
+        inputLines: nonEmptyLines.length,
+        billableLines,
+        providerUsed: result.provider,
+        providerModel: result.model,
+        providersTried: providerAttempts,
+        promptVersion: BOM_PROMPT_VERSION,
+        items: result.items,
+        request: persistenceRequest,
+      })
+
+      if (storage.status === 'insufficient_points') {
+        return jsonResponse(
+          {
+            error: storage.error ?? 'Insufficient points balance for billable BOM parsing.',
+            prompt_version: BOM_PROMPT_VERSION,
+            provider_used: result.provider,
+            provider_model: result.model,
+            fallback_used: attemptIndex > 0,
+            providers_tried: providerAttempts,
+            input_lines: nonEmptyLines.length,
+            free_lines: freeLines,
+            billable_lines: billableLines,
+            storage,
+          },
+          402,
+        )
+      }
+
+      return jsonResponse({
+        request_id: crypto.randomUUID(),
+        prompt_version: BOM_PROMPT_VERSION,
+        provider_used: result.provider,
+        provider_model: result.model,
+        fallback_used: attemptIndex > 0,
+        providers_tried: providerAttempts,
+        input_lines: nonEmptyLines.length,
+        free_lines: freeLines,
+        billable_lines: billableLines,
+        items: result.items,
+        storage,
+      })
+    } catch (error) {
+      providerAttempts.push({
+        provider: config.provider,
+        model: config.model,
+        ok: false,
+        error: error instanceof Error ? error.message : `${config.provider} failed`,
+      })
     }
-
-    return jsonResponse({
-      request_id: crypto.randomUUID(),
-      prompt_version: BOM_PROMPT_VERSION,
-      provider_used: workersResult.provider,
-      provider_model: workersResult.model,
-      fallback_used: true,
-      providers_tried: providerAttempts,
-      input_lines: nonEmptyLines.length,
-      free_lines: freeLines,
-      billable_lines: billableLines,
-      items: workersResult.items,
-      storage,
-    })
-  } catch (error) {
-    providerAttempts.push({
-      provider: 'workers-ai',
-      model: env.WORKERS_AI_MODEL ?? '@cf/meta/llama-3.1-8b-instruct-fast',
-      ok: false,
-      error: error instanceof Error ? error.message : 'Workers AI failed',
-    })
   }
 
   return jsonResponse(

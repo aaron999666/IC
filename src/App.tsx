@@ -1,4 +1,5 @@
 import { NavLink, Route, Routes } from 'react-router-dom'
+import AdminAiPage from './pages/AdminAiPage'
 import BomPage from './pages/BomPage'
 import DashboardPage from './pages/DashboardPage'
 import DataHubPage from './pages/DataHubPage'
@@ -49,6 +50,7 @@ function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/market" element={<MarketPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/admin/ai" element={<AdminAiPage />} />
         <Route path="/bom" element={<BomPage />} />
         <Route path="/data-hub" element={<DataHubPage />} />
       </Routes>

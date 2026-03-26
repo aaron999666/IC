@@ -202,7 +202,8 @@ button {
 .pipeline-list,
 .schema-grid,
 .ledger-lanes,
-.faq-grid {
+.faq-grid,
+.admin-grid {
   display: grid;
   gap: 24px;
 }
@@ -733,6 +734,11 @@ button {
   color: var(--text-soft);
 }
 
+.danger-toggle {
+  border-color: rgba(179, 58, 32, 0.18);
+  background: rgba(179, 58, 32, 0.06);
+}
+
 .checkbox-row input {
   accent-color: var(--accent);
 }
@@ -819,6 +825,34 @@ button {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.admin-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-card {
+  align-content: start;
+}
+
+.pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.secret-note {
+  color: var(--text-soft);
+  font-size: 0.9rem;
+}
+
+.admin-select {
+  min-height: 52px;
+  padding: 0 14px;
+  border: 1px solid rgba(22, 36, 54, 0.16);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+}
+
 .faq-grid {
   gap: 16px;
 }
@@ -886,6 +920,10 @@ button {
     grid-template-columns: 1fr 1fr;
   }
 
+  .admin-grid {
+    grid-template-columns: 1fr;
+  }
+
   .status-strip {
     justify-content: flex-start;
   }
@@ -919,7 +957,8 @@ button {
   .dashboard-metrics,
   .schema-grid,
   .ledger-lanes,
-  .control-grid {
+  .control-grid,
+  .admin-grid {
     grid-template-columns: 1fr;
   }
 

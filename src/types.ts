@@ -95,3 +95,21 @@ export type BomParseResponse = {
     error?: string
   }
 }
+
+export type AdminAiProviderConfig = {
+  provider: 'gemini' | 'workers-ai'
+  display_name: string
+  enabled: boolean
+  priority: number
+  request_mode: 'api-key' | 'binding' | 'rest'
+  model: string
+  base_url: string | null
+  account_id: string | null
+  api_key_hint: string | null
+  api_key_configured: boolean
+  api_token_hint: string | null
+  api_token_configured: boolean
+  source: 'database' | 'environment'
+  updated_by: string | null
+  updated_at: string | null
+}

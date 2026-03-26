@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { ledgerPreview, liveMetrics, rfqQueue } from '../data/mock'
 import { buildWebPageSchema, useSeo } from '../lib/seo'
 
@@ -92,6 +93,9 @@ function DashboardPage() {
             <li>Each buyer-company unlock is append-only, so the same source lane is not double-charged.</li>
             <li>Public market views never expose private phone or WeChat fields.</li>
           </ul>
+          <Link className="inline-link" to="/admin/ai">
+            Open AI provider admin console
+          </Link>
         </article>
       </section>
     </main>

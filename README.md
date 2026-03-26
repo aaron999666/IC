@@ -14,6 +14,7 @@
 - live AI BOM workspace wired to Cloudflare Pages Functions
 - dual-engine BOM parsing strategy docs at `docs/bom-dual-engine-strategy.md`
 - SEO and GEO assets including route-level meta, JSON-LD, `robots.txt`, `sitemap.xml`, `llms.txt` and `og-cover.svg`
+- admin AI provider console with encrypted secret storage and runtime fallback control
 - Supabase base schema at `supabase/migrations/20260326190000_initial_matchrail.sql`
 - pure information-flow MVP layer at `supabase/migrations/20260326210000_add_information_flow_mvp_layer.sql`
 - Cloudflare Pages config in `wrangler.toml`
@@ -60,12 +61,19 @@ Copy `.dev.vars.example` for local Pages Function testing:
 - `GEMINI_MODEL`
 - `GEMINI_BASE_URL`
 - `WORKERS_AI_MODEL`
+- `WORKERS_AI_BASE_URL`
+- `WORKERS_AI_REQUEST_MODE`
+- `WORKERS_AI_ACCOUNT_ID`
+- `WORKERS_AI_API_TOKEN`
 - `BOM_MAX_LINES`
 - `BOM_FREE_LINES`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_DEFAULT_BUYER_COMPANY_ID`
 - `SUPABASE_DEFAULT_SUBMITTED_BY_USER_ID`
+- `ADMIN_API_TOKEN`
+- `ADMIN_ENCRYPTION_KEY`
+- `AI_CONFIG_CACHE_TTL_SECONDS`
 
 ## BOM parsing flow
 
@@ -75,6 +83,8 @@ The endpoint at `functions/api/bom/parse.ts` now does four things:
 2. calls Gemini 1.5 Flash first
 3. falls back to Cloudflare Workers AI if Gemini fails
 4. optionally persists the normalized result into `bom_parse_jobs`, `bom_parse_lines` and `points_ledger`
+
+At runtime the parser now tries to load provider settings from the secure admin table first, then falls back to environment defaults if admin storage is empty or unavailable.
 
 Example request:
 
@@ -121,6 +131,25 @@ The repo now includes:
 ## Cloudflare config note
 
 `wrangler.toml` is included for Pages build output, model defaults and the `AI` binding name. Keep secrets in Cloudflare environment variables or `.dev.vars` locally.
+
+## Admin AI configuration
+
+The admin console lives at `/admin/ai` and uses a bootstrap bearer token as the current server-side gate.
+
+Security model in this repo:
+
+- provider secrets are never stored in `VITE_*` variables
+- the browser can write secrets but can never read them back
+- provider secrets are encrypted before being stored in Supabase
+- runtime parsing decrypts them only inside the Pages Function
+- if secure admin storage is unavailable, parsing falls back to environment defaults
+
+Related files:
+
+- `functions/api/admin/ai-config.ts`
+- `functions/api/ai-config-store.ts`
+- `src/pages/AdminAiPage.tsx`
+- `supabase/migrations/20260327013000_add_admin_ai_provider_configs.sql`
 
 ## GitHub
 
