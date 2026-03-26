@@ -2,9 +2,19 @@ import { useDeferredValue, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supplierRows } from '../data/mock'
 import { hasSupabasePublicSearch, searchPublicInventory } from '../lib/publicInventory'
+import { buildWebPageSchema, useSeo } from '../lib/seo'
 import type { SupplierRow } from '../types'
 
 function MarketPage() {
+  const title = '现货搜索 | 芯汇 ICCoreHub'
+  const description = '搜索芯汇 ICCoreHub 的公开现货板，查看脱敏库存、批次、价格区间、信用评级与替代料建议。'
+  useSeo({
+    title,
+    description,
+    path: '/market',
+    schema: buildWebPageSchema('/market', title, description, 'CollectionPage'),
+  })
+
   const [searchParams, setSearchParams] = useSearchParams()
   const initialQuery = searchParams.get('q') ?? 'STM32F103C8T6'
   const [query, setQuery] = useState(initialQuery)

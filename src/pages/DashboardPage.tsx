@@ -1,6 +1,17 @@
 import { ledgerPreview, liveMetrics, rfqQueue } from '../data/mock'
+import { buildWebPageSchema, useSeo } from '../lib/seo'
 
 function DashboardPage() {
+  const title = '运营工作台 | 芯汇 ICCoreHub'
+  const description = '查看库存同步、积分流水、需求队列与联系方式解锁控制台。'
+  useSeo({
+    title,
+    description,
+    path: '/dashboard',
+    robots: 'noindex, nofollow, max-image-preview:large',
+    schema: buildWebPageSchema('/dashboard', title, description),
+  })
+
   return (
     <main className="page">
       <section className="page-heading">

@@ -5,6 +5,7 @@ import type {
   Metric,
   PipelineStep,
   QueueItem,
+  FaqItem,
   SchemaEntity,
   SupplierRow,
 } from '../types'
@@ -221,5 +222,28 @@ export const ledgerPreview: LedgerItem[] = [
     title: 'BOM parse over free tier',
     change: '-22 pts',
     note: '72 lines parsed today',
+  },
+]
+
+export const seoFaqs: FaqItem[] = [
+  {
+    question: '芯汇 ICCoreHub 是什么平台？',
+    answer:
+      '芯汇 ICCoreHub 是一个面向 IC 芯片与电子元器件行业的纯信息撮合平台，核心能力是 AI BOM 解析、现货搜索、供需信息匹配和联系方式按积分解锁。',
+  },
+  {
+    question: '芯汇 ICCoreHub 会参与资金或实物交易吗？',
+    answer:
+      '不会。平台聚焦数据清洗、信息流转和供需匹配，不直接接管资金流与实物交付，从而降低履约与合规风险。',
+  },
+  {
+    question: 'AI BOM 解析能处理什么内容？',
+    answer:
+      '平台可以把混乱的 BOM 文本、Excel 导出内容或采购聊天记录清洗为标准化的料号、品牌、数量和封装字段，并支持去重合并。',
+  },
+  {
+    question: '卖家联系方式如何保护？',
+    answer:
+      '公开搜索页默认只展示脱敏库存与信用信息，电话和微信等私密联系方式通过服务端函数和积分账本控制解锁。',
   },
 ]

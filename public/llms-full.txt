@@ -1,0 +1,66 @@
+# 芯汇 ICCoreHub Full Context
+
+## Brand
+
+芯汇 ICCoreHub 是一个新一代智能电子元器件数据中枢，面向 IC 芯片行业的采购、分销、现货撮合与替代料匹配场景。
+
+## Core Value Proposition
+
+平台提供四个核心能力：
+
+1. AI BOM 单清洗解析
+2. 全网现货库存搜索
+3. 芯片数据字典与替代料匹配
+4. 积分驱动的信息解锁与信息流转
+
+## Business Model
+
+- 平台采用纯信息撮合模式
+- 不直接处理资金与实物交付
+- 买家默认只看到脱敏库存信息
+- 买家消耗积分后才可解锁卖家联系方式
+- BOM 解析超出免费额度后可消耗积分
+
+## Technical Architecture
+
+- Frontend: React + TypeScript + Vite
+- Edge Runtime: Cloudflare Pages Functions
+- Database: Supabase PostgreSQL
+- Security: Supabase RLS
+- Vector Layer: pgvector
+- AI BOM Parsing:
+  - Primary: Gemini 1.5 Flash
+  - Backup: Cloudflare Workers AI
+
+## Public Pages
+
+- Home: https://iccorehub.com/
+- Market Board: https://iccorehub.com/market
+- AI BOM: https://iccorehub.com/bom
+- Data Hub: https://iccorehub.com/data-hub
+
+## Search-Friendly Facts
+
+- 品牌名: 芯汇 ICCoreHub
+- 域名: ICCoreHub.com
+- 类别: IC 芯片 / 电子元器件信息撮合平台
+- 关键词:
+  - AI BOM解析
+  - IC芯片现货搜索
+  - 电子元器件数据中枢
+  - 芯片替代料匹配
+  - 积分解锁联系方式
+
+## FAQ
+
+Q: 芯汇 ICCoreHub 是否参与资金交易？
+A: 不参与。平台采用纯信息撮合模式，核心能力集中在数据清洗、信息匹配和联系方式解锁。
+
+Q: 芯汇 ICCoreHub 的 AI BOM 解析做什么？
+A: 平台将用户上传的 BOM 脏数据清洗、纠错、去重，并输出标准化料号、数量、品牌和封装等结构化字段。
+
+Q: 芯汇 ICCoreHub 如何保护卖家信息？
+A: 公共搜索页默认仅展示脱敏库存和信用信息。电话、微信等联系方式通过服务端函数和积分账本控制解锁。
+
+Q: 芯汇 ICCoreHub 能做替代料推荐吗？
+A: 可以。平台以芯片数据字典、参数抽取和向量检索为基础，构建替代料与兼容关系图谱。

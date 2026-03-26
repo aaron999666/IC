@@ -13,6 +13,7 @@
 - public market board with Supabase RPC loader fallback to local demo data
 - live AI BOM workspace wired to Cloudflare Pages Functions
 - dual-engine BOM parsing strategy docs at `docs/bom-dual-engine-strategy.md`
+- SEO and GEO assets including route-level meta, JSON-LD, `robots.txt`, `sitemap.xml`, `llms.txt` and `og-cover.svg`
 - Supabase base schema at `supabase/migrations/20260326190000_initial_matchrail.sql`
 - pure information-flow MVP layer at `supabase/migrations/20260326210000_add_information_flow_mvp_layer.sql`
 - Cloudflare Pages config in `wrangler.toml`
@@ -105,6 +106,17 @@ from public.unlock_inventory_contact(
   'buyer-company-uuid'
 );
 ```
+
+## SEO and GEO assets
+
+The repo now includes:
+
+- dynamic route-level title, description, canonical, Open Graph and Twitter tags
+- JSON-LD schema for the brand, website, FAQ and key public pages
+- crawl controls in `public/robots.txt`
+- URL inventory in `public/sitemap.xml`
+- LLM-oriented summary files in `public/llms.txt` and `public/llms-full.txt`
+- a social preview image in `public/og-cover.svg`
 
 ## Cloudflare config note
 

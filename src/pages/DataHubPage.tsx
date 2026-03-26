@@ -1,6 +1,16 @@
 import { dictionaryPipeline, schemaEntities } from '../data/mock'
+import { buildWebPageSchema, useSeo } from '../lib/seo'
 
 function DataHubPage() {
+  const title = '数据中枢 | 芯汇 ICCoreHub'
+  const description = '查看芯汇 ICCoreHub 的芯片数据字典、RLS 安全模型、BOM 结构化入库链路与替代料图谱设计。'
+  useSeo({
+    title,
+    description,
+    path: '/data-hub',
+    schema: buildWebPageSchema('/data-hub', title, description, 'AboutPage'),
+  })
+
   return (
     <main className="page">
       <section className="page-heading">

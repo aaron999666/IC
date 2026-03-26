@@ -56,6 +56,11 @@ export type LedgerItem = {
   note: string
 }
 
+export type FaqItem = {
+  question: string
+  answer: string
+}
+
 export type BomApiItem = {
   standard_part_number: string | null
   brand: string | null

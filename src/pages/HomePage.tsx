@@ -1,8 +1,36 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { dictionaryPipeline, heroSuggestions, hotQueries, liveMetrics } from '../data/mock'
+import { dictionaryPipeline, heroSuggestions, hotQueries, liveMetrics, seoFaqs } from '../data/mock'
+import {
+  DEFAULT_DESCRIPTION,
+  SITE_NAME,
+  buildFaqSchema,
+  buildOrganizationSchema,
+  buildWebPageSchema,
+  buildWebsiteSchema,
+  useSeo,
+} from '../lib/seo'
 
 function HomePage() {
   const navigate = useNavigate()
+  const homeTitle = '芯汇 ICCoreHub | 全网IC芯片纯信息撮合平台 - AI极速BOM解析与现货搜索'
+
+  useSeo({
+    title: homeTitle,
+    description: DEFAULT_DESCRIPTION,
+    path: '/',
+    schema: [
+      buildOrganizationSchema(),
+      buildWebsiteSchema(),
+      buildWebPageSchema('/', homeTitle, DEFAULT_DESCRIPTION),
+      buildFaqSchema(
+        '/',
+        seoFaqs.map((item) => ({
+          question: item.question,
+          answer: item.answer,
+        })),
+      ),
+    ],
+  })
 
   return (
     <main className="page home-page">
@@ -186,6 +214,41 @@ function HomePage() {
             <span>Private contact vault</span>
             <span>Global edge delivery</span>
             <span>Dual-engine AI parsing</span>
+          </div>
+        </article>
+      </section>
+
+      <section className="split-grid">
+        <article className="content-card">
+          <div className="panel-heading">
+            <span className="panel-code">ENTITY</span>
+            <h2>{SITE_NAME} 是什么</h2>
+          </div>
+          <p className="section-copy">
+            芯汇是一个以芯片数据字典为底座的电子元器件数据中枢，服务于采购、分销、
+            现货撮合、替代料推荐和 BOM 清洗场景。平台通过 Cloudflare 边缘函数和
+            Supabase 数据层承接搜索、解析、积分扣费与私密信息解锁。
+          </p>
+          <ul className="plain-list">
+            <li>AI BOM 极速解析，清洗脏料号、数量和封装字段。</li>
+            <li>全网现货库存搜索，默认公开展示脱敏库存与信用信息。</li>
+            <li>纯信息撮合模式，不碰资金与实物。</li>
+            <li>用积分驱动高价值信息解锁与算力消耗。</li>
+          </ul>
+        </article>
+
+        <article className="content-card">
+          <div className="panel-heading">
+            <span className="panel-code">FAQ</span>
+            <h2>常见问题</h2>
+          </div>
+          <div className="faq-grid">
+            {seoFaqs.map((item) => (
+              <div key={item.question} className="faq-item">
+                <h3>{item.question}</h3>
+                <p>{item.answer}</p>
+              </div>
+            ))}
           </div>
         </article>
       </section>
