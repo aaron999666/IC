@@ -19,7 +19,7 @@ export type SupplierRow = {
   lot: string
   stock: string
   price: string
-  escrow: string
+  channel: string
   location: string
 }
 
@@ -81,4 +81,12 @@ export type BomParseResponse = {
   free_lines: number
   billable_lines: number
   items: BomApiItem[]
+  storage?: {
+    persisted: boolean
+    status: string
+    job_id: string | null
+    points_charged: number
+    skipped_reason?: string
+    error?: string
+  }
 }

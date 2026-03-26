@@ -6,7 +6,7 @@ function DataHubPage() {
       <section className="page-heading">
         <div>
           <p className="eyebrow">Data center</p>
-          <h1>The platform moat lives in canonical identity and graph edges.</h1>
+          <h1>ICCoreHub wins when canonical identity and graph edges stay cleaner than the market.</h1>
         </div>
       </section>
 

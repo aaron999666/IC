@@ -1,35 +1,78 @@
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supplierRows } from '../data/mock'
+import { hasSupabasePublicSearch, searchPublicInventory } from '../lib/publicInventory'
+import type { SupplierRow } from '../types'
 
 function MarketPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const initialQuery = searchParams.get('q') ?? 'STM32F103C8T6'
   const [query, setQuery] = useState(initialQuery)
+  const [liveRows, setLiveRows] = useState<SupplierRow[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
   const deferredQuery = useDeferredValue(query)
 
   useEffect(() => {
     setQuery(initialQuery)
   }, [initialQuery])
 
-  const normalizedQuery = deferredQuery.trim().toLowerCase()
-  const filteredRows = supplierRows.filter((row) => {
-    if (!normalizedQuery) {
-      return true
+  useEffect(() => {
+    if (!hasSupabasePublicSearch) {
+      return
     }
 
-    return [row.mpn, row.brand, row.package, row.location]
-      .join(' ')
-      .toLowerCase()
-      .includes(normalizedQuery)
-  })
+    let isCancelled = false
+
+    async function loadLiveRows() {
+      setIsLoading(true)
+      setLoadError(null)
+
+      try {
+        const rows = await searchPublicInventory(initialQuery, 24)
+
+        if (!isCancelled) {
+          setLiveRows(rows)
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          setLoadError(error instanceof Error ? error.message : 'Failed to load live inventory.')
+          setLiveRows([])
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void loadLiveRows()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [initialQuery])
+
+  const normalizedQuery = deferredQuery.trim().toLowerCase()
+  const filteredRows = hasSupabasePublicSearch
+    ? liveRows
+    : supplierRows.filter((row) => {
+        if (!normalizedQuery) {
+          return true
+        }
+
+        return [row.mpn, row.brand, row.package, row.location]
+          .join(' ')
+          .toLowerCase()
+          .includes(normalizedQuery)
+      })
 
   return (
     <main className="page">
       <section className="page-heading">
         <div>
-          <p className="eyebrow">Live market board</p>
-          <h1>High-density result view built for sourcing speed.</h1>
+          <p className="eyebrow">Public market board</p>
+          <h1>High-density supply view with seller identity redacted by default.</h1>
         </div>
         <form
           className="toolbar-search"
@@ -46,34 +89,35 @@ function MarketPage() {
             onChange={(event) => setQuery(event.target.value)}
             aria-label="Filter live supply"
           />
-          <button type="submit">Refresh board</button>
+          <button type="submit">{isLoading ? 'Loading...' : 'Run search'}</button>
         </form>
       </section>
 
       <section className="split-grid market-grid">
         <article className="content-card">
           <div className="panel-heading">
-            <span className="panel-code">RFQ</span>
+            <span className="panel-code">SEARCH</span>
             <h2>Result table</h2>
           </div>
           <div className="result-toolbar">
-            <span>{filteredRows.length} matched sellers</span>
+            <span>{filteredRows.length} matched listings</span>
             <span>Contact reveal: 50 pts</span>
-            <span>Escrow-preferred supply highlighted</span>
+            <span>{hasSupabasePublicSearch ? 'Supabase public RPC live' : 'Local demo dataset fallback'}</span>
           </div>
+          {loadError ? <p className="inline-error">{loadError}</p> : null}
           <div className="table-shell">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Seller</th>
-                  <th>Rating</th>
+                  <th>Source lane</th>
+                  <th>Credit</th>
                   <th>MPN</th>
                   <th>Brand</th>
                   <th>Package</th>
                   <th>D/C</th>
                   <th>Stock</th>
                   <th>Price</th>
-                  <th>Trade</th>
+                  <th>Access</th>
                   <th>Action</th>
                 </tr>
               </thead>
@@ -91,7 +135,7 @@ function MarketPage() {
                     <td>{row.lot}</td>
                     <td>{row.stock}</td>
                     <td>{row.price}</td>
-                    <td>{row.escrow}</td>
+                    <td>{row.channel}</td>
                     <td>
                       <button type="button" className="table-action">
                         Reveal contact
@@ -116,13 +160,13 @@ function MarketPage() {
           </div>
           <div className="stack-block">
             <h3>Reference price lane</h3>
-            <p>RMB 7.28 - 7.45 / pcs</p>
-            <span>based on live stock visible in the marketplace skeleton</span>
+            <p>CNY 7.28 - 7.45 / pcs</p>
+            <span>based on the lowest public lane visible in the board</span>
           </div>
           <div className="stack-block">
-            <h3>Compliance gate</h3>
-            <p>Escrow + traceable lot recommended</p>
-            <span>critical for high-value or export-controlled programs</span>
+            <h3>Reveal guardrail</h3>
+            <p>Phone and WeChat stay server-side until point deduction passes.</p>
+            <span>public search never exposes direct seller identity by default</span>
           </div>
         </aside>
       </section>

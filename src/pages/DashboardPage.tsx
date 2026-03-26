@@ -5,8 +5,8 @@ function DashboardPage() {
     <main className="page">
       <section className="page-heading">
         <div>
-          <p className="eyebrow">Seller and buyer cockpit</p>
-          <h1>Manage inventory freshness, RFQ response and points economics.</h1>
+          <p className="eyebrow">Ops desk</p>
+          <h1>Manage inventory freshness, reveal history and points economics.</h1>
         </div>
       </section>
 
@@ -24,7 +24,7 @@ function DashboardPage() {
         <article className="content-card">
           <div className="panel-heading">
             <span className="panel-code">QUEUE</span>
-            <h2>Live RFQ queue</h2>
+            <h2>Live demand queue</h2>
           </div>
           <ul className="queue-list">
             {rfqQueue.map((item) => (
@@ -73,13 +73,13 @@ function DashboardPage() {
 
         <article className="content-card">
           <div className="panel-heading">
-            <span className="panel-code">ESCROW</span>
-            <h2>Settlement milestones</h2>
+            <span className="panel-code">REVEAL</span>
+            <h2>Reveal controls</h2>
           </div>
           <ul className="plain-list">
-            <li>Buyer funds held before seller release.</li>
-            <li>QC checkpoint can unlock partial release for high-risk lots.</li>
-            <li>Dispute state remains isolated from public result views.</li>
+            <li>Contact reveal happens only through a server-side function after points are checked.</li>
+            <li>Each buyer-company unlock is append-only, so the same source lane is not double-charged.</li>
+            <li>Public market views never expose private phone or WeChat fields.</li>
           </ul>
         </article>
       </section>

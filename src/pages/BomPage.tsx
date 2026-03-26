@@ -8,6 +8,10 @@ const sampleBom = `老板在吗？帮我找下ST的单片机 stm32f103 c8t6，�
 
 function BomPage() {
   const [text, setText] = useState(sampleBom)
+  const [buyerCompanyId, setBuyerCompanyId] = useState('')
+  const [submittedByUserId, setSubmittedByUserId] = useState('')
+  const [persistResult, setPersistResult] = useState(true)
+  const [chargePoints, setChargePoints] = useState(true)
   const [result, setResult] = useState<BomParseResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -29,7 +33,13 @@ function BomPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ text: trimmed }),
+        body: JSON.stringify({
+          text: trimmed,
+          buyerCompanyId: buyerCompanyId || undefined,
+          submittedByUserId: submittedByUserId || undefined,
+          persistResult,
+          chargePoints,
+        }),
       })
 
       const payload = (await response.json().catch(() => null)) as
@@ -80,6 +90,46 @@ function BomPage() {
             spellCheck={false}
             aria-label="BOM input"
           />
+          <div className="control-grid">
+            <div className="field-stack">
+              <label htmlFor="buyer-company-id">Buyer company UUID</label>
+              <input
+                id="buyer-company-id"
+                type="text"
+                value={buyerCompanyId}
+                onChange={(event) => setBuyerCompanyId(event.target.value)}
+                placeholder="Optional if default env company id is set"
+              />
+            </div>
+            <div className="field-stack">
+              <label htmlFor="submitted-by-user-id">Submitted by user UUID</label>
+              <input
+                id="submitted-by-user-id"
+                type="text"
+                value={submittedByUserId}
+                onChange={(event) => setSubmittedByUserId(event.target.value)}
+                placeholder="Optional if default env user id is set"
+              />
+            </div>
+          </div>
+          <div className="checkbox-row">
+            <label>
+              <input
+                type="checkbox"
+                checked={persistResult}
+                onChange={(event) => setPersistResult(event.target.checked)}
+              />
+              Persist result to Supabase
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={chargePoints}
+                onChange={(event) => setChargePoints(event.target.checked)}
+              />
+              Charge billable lines to points ledger
+            </label>
+          </div>
           <div className="bom-actions">
             <button type="button" className="primary-action" onClick={handleParse} disabled={isLoading}>
               {isLoading ? 'Parsing with AI...' : 'Run AI parse'}
@@ -89,6 +139,10 @@ function BomPage() {
               className="ghost-link"
               onClick={() => {
                 setText(sampleBom)
+                setBuyerCompanyId('')
+                setSubmittedByUserId('')
+                setPersistResult(true)
+                setChargePoints(true)
                 setError(null)
               }}
             >
@@ -100,7 +154,9 @@ function BomPage() {
               <strong>Primary: Gemini 1.5 Flash</strong>
               <span>Backup: Cloudflare Workers AI inside the same edge runtime</span>
             </div>
-            <span className="inline-meta">Prompt version: {result?.prompt_version ?? 'industry-cn-v3-dual-engine'}</span>
+            <span className="inline-meta">
+              Prompt version: {result?.prompt_version ?? 'industry-cn-v3-dual-engine'}
+            </span>
           </div>
           {error ? <p className="inline-error">{error}</p> : null}
         </article>
@@ -114,6 +170,11 @@ function BomPage() {
             <span>{result?.items.length ?? 0} normalized lines</span>
             <span>{result ? `${result.billable_lines} billable lines` : 'Ready to parse'}</span>
             <span>{result ? `${result.free_lines} free lines per request` : 'Dual-engine standby'}</span>
+            <span>
+              {result?.storage
+                ? `${result.storage.points_charged} pts charged`
+                : 'Supabase storage optional'}
+            </span>
           </div>
           <div className="table-shell">
             <table className="data-table">
@@ -137,7 +198,32 @@ function BomPage() {
               </tbody>
             </table>
           </div>
+          {result?.storage ? (
+            <p className="status-detail">
+              Storage status: <strong>{result.storage.status}</strong>
+              {result.storage.job_id ? ` · job ${result.storage.job_id}` : ''}
+              {result.storage.skipped_reason ? ` · ${result.storage.skipped_reason}` : ''}
+              {result.storage.error ? ` · ${result.storage.error}` : ''}
+            </p>
+          ) : null}
           <div className="engine-attempts">
+            {result?.storage ? (
+              <div
+                className={
+                  result.storage.persisted
+                    ? 'attempt-chip attempt-chip-success'
+                    : 'attempt-chip attempt-chip-neutral'
+                }
+              >
+                <strong>storage</strong>
+                <span>{result.storage.status}</span>
+                <small>
+                  {result.storage.job_id
+                    ? `job ${result.storage.job_id}`
+                    : result.storage.skipped_reason ?? result.storage.error ?? 'ready'}
+                </small>
+              </div>
+            ) : null}
             {(result?.providers_tried ?? []).map((attempt) => (
               <div
                 key={`${attempt.provider}-${attempt.model}`}

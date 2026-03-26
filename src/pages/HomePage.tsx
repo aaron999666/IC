@@ -8,12 +8,12 @@ function HomePage() {
     <main className="page home-page">
       <section className="hero-panel">
         <div className="hero-copy">
-          <p className="eyebrow">IC matching rail for non-standard supply chains</p>
-          <h1>Search first. Match fast. Keep pricing private.</h1>
+          <p className="eyebrow">ICCoreHub.com · chip data intelligence bureau</p>
+          <h1>Clean dirty BOMs. Match live supply. Reveal contacts only when needed.</h1>
           <p className="hero-text">
-            A B2B exchange skeleton for chip sourcing with a data-dictionary spine,
-            BOM intelligence, escrow-ready deal flow and a points-driven monetization
-            layer.
+            ICCoreHub is a pure information-flow platform for IC sourcing. The moat is
+            a canonical chip dictionary, dual-engine BOM cleansing, and a points ledger
+            that meters high-value access without subscriptions.
           </p>
 
           <form
@@ -35,15 +35,15 @@ function HomePage() {
               defaultValue={heroSuggestions[0]}
               aria-label="Search part numbers"
             />
-            <button type="submit">Search live supply</button>
+            <button type="submit">Search public board</button>
           </form>
 
           <div className="hero-actions">
             <Link className="ghost-link" to="/bom">
               Open AI BOM lane
             </Link>
-            <Link className="ghost-link" to="/dashboard">
-              View seller cockpit
+            <Link className="ghost-link" to="/market">
+              View market board
             </Link>
           </div>
 
@@ -68,8 +68,8 @@ function HomePage() {
             <h2>Drop a messy file, get a standardized sourcing sheet.</h2>
           </div>
           <p>
-            CSV, Excel export or copied text. First 50 lines free, then 1 point per
-            additional row.
+            Gemini 1.5 Flash runs first, Workers AI stands by as backup. First 20
+            lines free, then point billing can kick in once storage is enabled.
           </p>
           <div className="drop-zone">
             <div>
@@ -133,7 +133,7 @@ function HomePage() {
               <ul className="plain-list">
                 <li>KYB approved: 500 pts one-time</li>
                 <li>ERP sync live: 300 pts monthly</li>
-                <li>Escrow deal released: rebate to both sides</li>
+                <li>Trusted data contribution: review rewards</li>
               </ul>
             </div>
             <div>
@@ -174,17 +174,18 @@ function HomePage() {
         <article className="content-card emphasis-card">
           <div className="panel-heading">
             <span className="panel-code">NEXT</span>
-            <h2>Ready for Supabase + Cloudflare Pages.</h2>
+            <h2>Built for Supabase + Cloudflare Pages.</h2>
           </div>
           <p className="section-copy">
-            This starter is shaped for a static-first deploy now, then a Supabase-backed
-            data dictionary, RLS-secured quotes and edge-served experience later.
+            The MVP stays light: Cloudflare Pages for edge delivery, Supabase for the
+            dictionary and vault, and server-side point checks before every sensitive
+            reveal.
           </p>
           <div className="tag-row">
             <span>Canonical SKU graph</span>
-            <span>Private quote visibility</span>
+            <span>Private contact vault</span>
             <span>Global edge delivery</span>
-            <span>Escrow-aware flows</span>
+            <span>Dual-engine AI parsing</span>
           </div>
         </article>
       </section>

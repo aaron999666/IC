@@ -13,6 +13,10 @@
       <stop offset="0.55" stop-color="#A8D3F4" stop-opacity="0.94" />
       <stop offset="1" stop-color="#2D6F9F" stop-opacity="0.18" />
     </radialGradient>
+    <filter id="shine" x="36" y="36" width="56" height="56" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix" />
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4" />
+    </filter>
   </defs>
 
   <path d="M64 8l9 10H55l9-10Z" fill="#6E7C8A" />
@@ -29,4 +33,5 @@
 
   <circle cx="64" cy="64" r="25" fill="url(#coreGlow)" />
   <circle cx="64" cy="64" r="11" fill="#F8FCFF" />
+  <circle cx="64" cy="64" r="11" fill="#F8FCFF" filter="url(#shine)" />
 </svg>

@@ -5,6 +5,10 @@ import {
   BOM_SYSTEM_PROMPT,
   type BomParsedItem,
 } from './prompt'
+import {
+  persistBomParseResult,
+  type PersistenceRequest,
+} from './storage'
 
 interface AiBinding {
   run(model: string, input: unknown): Promise<unknown>
@@ -18,6 +22,10 @@ interface Env {
   WORKERS_AI_MODEL?: string
   BOM_MAX_LINES?: string
   BOM_FREE_LINES?: string
+  SUPABASE_URL?: string
+  SUPABASE_SERVICE_ROLE_KEY?: string
+  SUPABASE_DEFAULT_BUYER_COMPANY_ID?: string
+  SUPABASE_DEFAULT_SUBMITTED_BY_USER_ID?: string
 }
 
 interface PagesFunctionContext<TEnv> {
@@ -25,7 +33,7 @@ interface PagesFunctionContext<TEnv> {
   env: TEnv
 }
 
-interface BomParseRequest {
+interface BomParseRequest extends PersistenceRequest {
   text?: string
 }
 
@@ -356,6 +364,12 @@ export async function onRequestPost(context: PagesFunctionContext<Env>) {
   const { request, env } = context
   const body = (await request.json().catch(() => null)) as BomParseRequest | null
   const text = cleanSourceText(body?.text ?? '')
+  const persistenceRequest: PersistenceRequest = {
+    buyerCompanyId: body?.buyerCompanyId,
+    submittedByUserId: body?.submittedByUserId,
+    persistResult: body?.persistResult,
+    chargePoints: body?.chargePoints,
+  }
 
   if (!text) {
     return badRequest('Request body must include a non-empty `text` field.')
@@ -381,6 +395,7 @@ export async function onRequestPost(context: PagesFunctionContext<Env>) {
   }
 
   const providerAttempts: ProviderAttempt[] = []
+  const billableLines = Math.max(nonEmptyLines.length - freeLines, 0)
 
   try {
     const geminiResult = await callGeminiProvider(env, text)
@@ -389,6 +404,36 @@ export async function onRequestPost(context: PagesFunctionContext<Env>) {
       model: geminiResult.model,
       ok: true,
     })
+    const storage = await persistBomParseResult({
+      env,
+      sourceText: text,
+      inputLines: nonEmptyLines.length,
+      billableLines,
+      providerUsed: geminiResult.provider,
+      providerModel: geminiResult.model,
+      providersTried: providerAttempts,
+      promptVersion: BOM_PROMPT_VERSION,
+      items: geminiResult.items,
+      request: persistenceRequest,
+    })
+
+    if (storage.status === 'insufficient_points') {
+      return jsonResponse(
+        {
+          error: storage.error ?? 'Insufficient points balance for billable BOM parsing.',
+          prompt_version: BOM_PROMPT_VERSION,
+          provider_used: geminiResult.provider,
+          provider_model: geminiResult.model,
+          fallback_used: false,
+          providers_tried: providerAttempts,
+          input_lines: nonEmptyLines.length,
+          free_lines: freeLines,
+          billable_lines: billableLines,
+          storage,
+        },
+        402,
+      )
+    }
 
     return jsonResponse({
       request_id: crypto.randomUUID(),
@@ -399,8 +444,9 @@ export async function onRequestPost(context: PagesFunctionContext<Env>) {
       providers_tried: providerAttempts,
       input_lines: nonEmptyLines.length,
       free_lines: freeLines,
-      billable_lines: Math.max(nonEmptyLines.length - freeLines, 0),
+      billable_lines: billableLines,
       items: geminiResult.items,
+      storage,
     })
   } catch (error) {
     providerAttempts.push({
@@ -418,6 +464,36 @@ export async function onRequestPost(context: PagesFunctionContext<Env>) {
       model: workersResult.model,
       ok: true,
     })
+    const storage = await persistBomParseResult({
+      env,
+      sourceText: text,
+      inputLines: nonEmptyLines.length,
+      billableLines,
+      providerUsed: workersResult.provider,
+      providerModel: workersResult.model,
+      providersTried: providerAttempts,
+      promptVersion: BOM_PROMPT_VERSION,
+      items: workersResult.items,
+      request: persistenceRequest,
+    })
+
+    if (storage.status === 'insufficient_points') {
+      return jsonResponse(
+        {
+          error: storage.error ?? 'Insufficient points balance for billable BOM parsing.',
+          prompt_version: BOM_PROMPT_VERSION,
+          provider_used: workersResult.provider,
+          provider_model: workersResult.model,
+          fallback_used: true,
+          providers_tried: providerAttempts,
+          input_lines: nonEmptyLines.length,
+          free_lines: freeLines,
+          billable_lines: billableLines,
+          storage,
+        },
+        402,
+      )
+    }
 
     return jsonResponse({
       request_id: crypto.randomUUID(),
@@ -428,8 +504,9 @@ export async function onRequestPost(context: PagesFunctionContext<Env>) {
       providers_tried: providerAttempts,
       input_lines: nonEmptyLines.length,
       free_lines: freeLines,
-      billable_lines: Math.max(nonEmptyLines.length - freeLines, 0),
+      billable_lines: billableLines,
       items: workersResult.items,
+      storage,
     })
   } catch (error) {
     providerAttempts.push({

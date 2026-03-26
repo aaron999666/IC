@@ -1,24 +1,22 @@
-# IC MatchRail
+# ICCoreHub
 
-IC MatchRail is a React + TypeScript frontend starter for an IC chip B2B brokerage platform. It is shaped around four platform pillars:
+`ICCoreHub.com` is a React + TypeScript starter for a pure information-flow IC chip platform. The product focus is:
 
-- canonical chip data dictionary
-- AI-assisted BOM parsing
-- escrow-aware sourcing workflow
-- points-based monetization instead of subscriptions
+- canonical chip dictionary and substitute graph
+- dual-engine AI BOM cleansing
+- redacted public inventory search
+- server-side contact reveal with points deduction
 
-## What is included
+## What is in the repo
 
-- landing page with high-density industrial UI
-- buyer market board for live sourcing results
-- AI BOM parsing workspace with normalization preview
-- data center view for dictionary pipeline and Supabase schema spine
-- seller and buyer dashboard for RFQ, inventory sync and points ledger
-- Cloudflare Pages SPA fallback via `public/_redirects`
-- Cloudflare Pages Function example for AI BOM parsing at `functions/api/bom/parse.ts`
-- BOM dual-engine rollout notes at `docs/bom-dual-engine-strategy.md`
-- Supabase bootstrap schema at `supabase/migrations/20260326190000_initial_matchrail.sql`
-- Information-flow MVP layer at `supabase/migrations/20260326210000_add_information_flow_mvp_layer.sql`
+- branded `ICCoreHub` landing page and navigation
+- public market board with Supabase RPC loader fallback to local demo data
+- live AI BOM workspace wired to Cloudflare Pages Functions
+- dual-engine BOM parsing strategy docs at `docs/bom-dual-engine-strategy.md`
+- Supabase base schema at `supabase/migrations/20260326190000_initial_matchrail.sql`
+- pure information-flow MVP layer at `supabase/migrations/20260326210000_add_information_flow_mvp_layer.sql`
+- Cloudflare Pages config in `wrangler.toml`
+- custom brand mark at `public/iccorehub-mark.svg`
 
 ## Stack
 
@@ -26,6 +24,8 @@ IC MatchRail is a React + TypeScript frontend starter for an IC chip B2B brokera
 - TypeScript
 - Vite
 - React Router
+- Cloudflare Pages Functions
+- Supabase Postgres + RLS + RPC
 
 ## Local development
 
@@ -34,21 +34,26 @@ npm install
 npm run dev
 ```
 
-## Build
+## Validation
 
 ```bash
+npm run lint
 npm run build
 ```
 
-## Environment variables
+## Frontend environment
 
-Copy values from `.env.example` when you wire real services:
+Copy `.env.example` and provide:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_APP_ENV`
 
-For Cloudflare Pages Functions, copy values from `.dev.vars.example` for local edge testing:
+When `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` exist, the market board calls `search_public_inventory(...)`. Otherwise it falls back to the local demo dataset.
+
+## Cloudflare Pages Function environment
+
+Copy `.dev.vars.example` for local Pages Function testing:
 
 - `GEMINI_API_KEY`
 - `GEMINI_MODEL`
@@ -56,39 +61,33 @@ For Cloudflare Pages Functions, copy values from `.dev.vars.example` for local e
 - `WORKERS_AI_MODEL`
 - `BOM_MAX_LINES`
 - `BOM_FREE_LINES`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_DEFAULT_BUYER_COMPANY_ID`
+- `SUPABASE_DEFAULT_SUBMITTED_BY_USER_ID`
 
-## AI BOM endpoint
+## BOM parsing flow
 
-The example Pages Function lives at `functions/api/bom/parse.ts` and accepts:
+The endpoint at `functions/api/bom/parse.ts` now does four things:
+
+1. cleans and validates the incoming BOM text
+2. calls Gemini 1.5 Flash first
+3. falls back to Cloudflare Workers AI if Gemini fails
+4. optionally persists the normalized result into `bom_parse_jobs`, `bom_parse_lines` and `points_ledger`
+
+Example request:
 
 ```json
 {
-  "text": "STM32 F103 C8 T6, 8000\nMAX 3232ESE, 12000"
+  "text": "STM32 F103 C8 T6, 8000\nMAX 3232ESE, 12000",
+  "persistResult": true,
+  "chargePoints": true
 }
 ```
 
-It returns structured rows plus billable line metadata so you can hook it into the points ledger later.
-The endpoint now runs a dual-engine chain: Gemini primary, Workers AI fallback.
+If Supabase service variables or default IDs are missing, parsing still succeeds and the response returns `storage.status = "skipped"` with the reason.
 
-## Supabase schema
-
-The migration file creates:
-
-- company and membership tables for KYB and RLS scoping
-- chip dictionary tables for manufacturers, families, packages, parts, aliases and datasheets
-- vector storage plus a `find_similar_parts(...)` SQL function for substitute lookup
-- inventory, RFQ, quotes and escrow tables for the trading workflow
-- BOM parse job tables and points ledger tables for AI cost accounting
-
-The second migration adds the lighter pure-information-flow layer:
-
-- `company_private_profiles` for private seller contact data and credit score
-- `public_inventory_search` for redacted live inventory search results
-- `search_public_inventory(...)` for public RPC-based inventory lookup
-- `unlock_inventory_contact(...)` for server-side points deduction plus contact reveal
-- `inventory_contact_unlocks` for append-only unlock history
-
-## Example RPC flow
+## Public inventory RPC flow
 
 Public search:
 
@@ -107,18 +106,10 @@ from public.unlock_inventory_contact(
 );
 ```
 
-## Suggested next implementation steps
+## Cloudflare config note
 
-1. Connect Supabase and create the first schema: `chip_family`, `chip_sku`, `cross_reference`, `seller_inventory`, `rfq_thread`, `quote`, `escrow_order`, `points_ledger`.
-2. Replace mock market and BOM data with real loaders fed by catalog crawlers and distributor imports.
-3. Add auth, KYB flow, quote privacy and points ledger mutations behind RLS policies.
-4. Connect Cloudflare Pages CI/CD after the GitHub remote is created.
+`wrangler.toml` is included for Pages build output, model defaults and the `AI` binding name. Keep secrets in Cloudflare environment variables or `.dev.vars` locally.
 
-## GitHub remote
+## GitHub
 
-`gh` is not installed in this environment, so the project is initialized as a local Git repository only. Once you create a remote repository, connect it with:
-
-```bash
-git remote add origin <your-github-repo-url>
-git push -u origin main
-```
+Remote repository: [github.com/aaron999666/IC](https://github.com/aaron999666/IC)
