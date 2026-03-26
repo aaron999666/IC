@@ -55,3 +55,30 @@ export type LedgerItem = {
   change: string
   note: string
 }
+
+export type BomApiItem = {
+  standard_part_number: string | null
+  brand: string | null
+  quantity: number | null
+  package_type: string | null
+}
+
+export type BomProviderAttempt = {
+  provider: string
+  model: string
+  ok: boolean
+  error?: string
+}
+
+export type BomParseResponse = {
+  request_id: string
+  prompt_version: string
+  provider_used: string
+  provider_model: string
+  fallback_used: boolean
+  providers_tried: BomProviderAttempt[]
+  input_lines: number
+  free_lines: number
+  billable_lines: number
+  items: BomApiItem[]
+}

@@ -1,5 +1,6 @@
-OPENAI_API_KEY=sk-your-key
-OPENAI_BOM_MODEL=gpt-4o-mini
-OPENAI_BASE_URL=https://api.openai.com/v1
+GEMINI_API_KEY=your-google-ai-studio-key
+GEMINI_MODEL=gemini-1.5-flash
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+WORKERS_AI_MODEL=@cf/meta/llama-3.1-8b-instruct-fast
 BOM_MAX_LINES=200
 BOM_FREE_LINES=20

@@ -1,61 +1,69 @@
-import { useState } from 'react'
-import { bomDictionary } from '../data/mock'
+import { startTransition, useState } from 'react'
+import type { BomParseResponse } from '../types'
 
-const sampleBom = `STM32 F103 C8 T6, 8000
-MAX 3232ESE, 12000
-TPS7A4701RGWT, 2000
-ESP32S3 WROOM 1 N8R8, 1600`
-
-function normalizeToken(value: string) {
-  return value.replace(/[^a-zA-Z0-9+]/g, '').toUpperCase()
-}
-
-function parseBomLine(line: string) {
-  const trimmed = line.trim()
-
-  if (!trimmed) {
-    return null
-  }
-
-  const [mpnPart, quantityPart] = trimmed.split(/[,\t]/)
-  const quantity = quantityPart?.trim() || '--'
-  const lookupKey = normalizeToken(mpnPart ?? trimmed)
-
-  const match = bomDictionary.find((item) => {
-    const candidates = [item.normalized, ...item.alias]
-    return candidates.some((candidate) => normalizeToken(candidate) === lookupKey)
-  })
-
-  return {
-    input: trimmed,
-    quantity,
-    normalized: match?.normalized ?? 'No exact hit',
-    brand: match?.brand ?? 'Manual review',
-    package: match?.package ?? '--',
-    availability: match?.availability ?? 'Needs crawl / datasheet extraction',
-    replacement: match?.replacement ?? 'No suggestion yet',
-  }
-}
+const sampleBom = `老板在吗？帮我找下ST的单片机 stm32f103 c8t6，要原装，大概5k左右。
+还有一个德州仪器的电源芯片，tps5430ddar，封装SOP-8，先来2000个。
+对了，那个ST的单片机再加2000个，客户要加单。
+随便看看有没有 max3232cdr，没写数量。`
 
 function BomPage() {
   const [text, setText] = useState(sampleBom)
+  const [result, setResult] = useState<BomParseResponse | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
 
-  const parsedRows = text
-    .split('\n')
-    .map(parseBomLine)
-    .filter((row): row is NonNullable<ReturnType<typeof parseBomLine>> => row !== null)
+  async function handleParse() {
+    const trimmed = text.trim()
+    if (!trimmed) {
+      setError('Please paste some BOM text before running the parser.')
+      return
+    }
+
+    setIsLoading(true)
+    setError(null)
+    setResult(null)
+
+    try {
+      const response = await fetch('/api/bom/parse', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text: trimmed }),
+      })
+
+      const payload = (await response.json().catch(() => null)) as
+        | BomParseResponse
+        | { error?: string }
+        | null
+
+      if (!response.ok) {
+        throw new Error(payload && 'error' in payload ? payload.error ?? 'BOM parse failed.' : 'BOM parse failed.')
+      }
+
+      startTransition(() => {
+        setResult(payload as BomParseResponse)
+      })
+    } catch (parseError) {
+      const message =
+        parseError instanceof Error ? parseError.message : 'BOM parse request failed.'
+      setError(message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   return (
     <main className="page">
       <section className="page-heading">
         <div>
           <p className="eyebrow">AI BOM lane</p>
-          <h1>Normalize hand-written BOM lines into searchable supply intent.</h1>
+          <h1>Run the live dual-engine parser against dirty sourcing text.</h1>
         </div>
         <div className="note-card">
-          <span>Free tier</span>
-          <strong>First 50 rows free</strong>
-          <p>extra rows consume 1 point each</p>
+          <span>Engine lane</span>
+          <strong>{result?.provider_used ?? 'Gemini first'}</strong>
+          <p>{result?.fallback_used ? 'Workers AI backup used' : 'Workers AI standby'}</p>
         </div>
       </section>
 
@@ -63,7 +71,7 @@ function BomPage() {
         <article className="content-card">
           <div className="panel-heading">
             <span className="panel-code">INPUT</span>
-            <h2>Paste or drop source material</h2>
+            <h2>Paste buyer chatter, spreadsheet scraps or RFQ text</h2>
           </div>
           <textarea
             className="bom-input"
@@ -72,49 +80,74 @@ function BomPage() {
             spellCheck={false}
             aria-label="BOM input"
           />
-          <div className="drop-zone compact-drop">
-            <div>
-              <strong>Upload Excel or CSV</strong>
-              <span>file parsing hook reserved for next phase</span>
-            </div>
-            <button type="button" className="ghost-link strong-link">
-              Connect parser
+          <div className="bom-actions">
+            <button type="button" className="primary-action" onClick={handleParse} disabled={isLoading}>
+              {isLoading ? 'Parsing with AI...' : 'Run AI parse'}
+            </button>
+            <button
+              type="button"
+              className="ghost-link"
+              onClick={() => {
+                setText(sampleBom)
+                setError(null)
+              }}
+            >
+              Reset sample
             </button>
           </div>
+          <div className="drop-zone compact-drop">
+            <div>
+              <strong>Primary: Gemini 1.5 Flash</strong>
+              <span>Backup: Cloudflare Workers AI inside the same edge runtime</span>
+            </div>
+            <span className="inline-meta">Prompt version: {result?.prompt_version ?? 'industry-cn-v3-dual-engine'}</span>
+          </div>
+          {error ? <p className="inline-error">{error}</p> : null}
         </article>
 
         <article className="content-card">
           <div className="panel-heading">
             <span className="panel-code">PARSE</span>
-            <h2>Structured preview</h2>
+            <h2>Structured output</h2>
+          </div>
+          <div className="result-toolbar">
+            <span>{result?.items.length ?? 0} normalized lines</span>
+            <span>{result ? `${result.billable_lines} billable lines` : 'Ready to parse'}</span>
+            <span>{result ? `${result.free_lines} free lines per request` : 'Dual-engine standby'}</span>
           </div>
           <div className="table-shell">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Input</th>
-                  <th>Qty</th>
-                  <th>Normalized MPN</th>
+                  <th>Standard MPN</th>
                   <th>Brand</th>
+                  <th>Qty</th>
                   <th>Package</th>
-                  <th>Availability</th>
-                  <th>Alt</th>
                 </tr>
               </thead>
               <tbody>
-                {parsedRows.map((row) => (
-                  <tr key={row.input}>
-                    <td>{row.input}</td>
-                    <td>{row.quantity}</td>
-                    <td>{row.normalized}</td>
-                    <td>{row.brand}</td>
-                    <td>{row.package}</td>
-                    <td>{row.availability}</td>
-                    <td>{row.replacement}</td>
+                {(result?.items ?? []).map((row) => (
+                  <tr key={`${row.standard_part_number}-${row.package_type ?? 'na'}`}>
+                    <td>{row.standard_part_number ?? '--'}</td>
+                    <td>{row.brand ?? '--'}</td>
+                    <td>{row.quantity ?? '--'}</td>
+                    <td>{row.package_type ?? '--'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="engine-attempts">
+            {(result?.providers_tried ?? []).map((attempt) => (
+              <div
+                key={`${attempt.provider}-${attempt.model}`}
+                className={attempt.ok ? 'attempt-chip attempt-chip-success' : 'attempt-chip attempt-chip-failure'}
+              >
+                <strong>{attempt.provider}</strong>
+                <span>{attempt.model}</span>
+                <small>{attempt.ok ? 'success' : attempt.error ?? 'failed'}</small>
+              </div>
+            ))}
           </div>
         </article>
       </section>

@@ -16,6 +16,7 @@ IC MatchRail is a React + TypeScript frontend starter for an IC chip B2B brokera
 - seller and buyer dashboard for RFQ, inventory sync and points ledger
 - Cloudflare Pages SPA fallback via `public/_redirects`
 - Cloudflare Pages Function example for AI BOM parsing at `functions/api/bom/parse.ts`
+- BOM dual-engine rollout notes at `docs/bom-dual-engine-strategy.md`
 - Supabase bootstrap schema at `supabase/migrations/20260326190000_initial_matchrail.sql`
 - Information-flow MVP layer at `supabase/migrations/20260326210000_add_information_flow_mvp_layer.sql`
 
@@ -49,9 +50,10 @@ Copy values from `.env.example` when you wire real services:
 
 For Cloudflare Pages Functions, copy values from `.dev.vars.example` for local edge testing:
 
-- `OPENAI_API_KEY`
-- `OPENAI_BOM_MODEL`
-- `OPENAI_BASE_URL`
+- `GEMINI_API_KEY`
+- `GEMINI_MODEL`
+- `GEMINI_BASE_URL`
+- `WORKERS_AI_MODEL`
 - `BOM_MAX_LINES`
 - `BOM_FREE_LINES`
 
@@ -66,6 +68,7 @@ The example Pages Function lives at `functions/api/bom/parse.ts` and accepts:
 ```
 
 It returns structured rows plus billable line metadata so you can hook it into the points ledger later.
+The endpoint now runs a dual-engine chain: Gemini primary, Workers AI fallback.
 
 ## Supabase schema
 
