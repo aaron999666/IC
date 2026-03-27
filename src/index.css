@@ -1049,6 +1049,46 @@ button {
   gap: 12px;
 }
 
+.package-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.package-card {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid rgba(22, 36, 54, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.64);
+  text-align: left;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.package-card strong,
+.package-card span,
+.package-card small {
+  display: block;
+}
+
+.package-card span,
+.package-card small {
+  color: var(--text-soft);
+}
+
+.package-card:hover,
+.package-card-active {
+  transform: translateY(-1px);
+  border-color: rgba(45, 111, 159, 0.28);
+  box-shadow: 0 16px 32px rgba(17, 32, 52, 0.1);
+  background: rgba(45, 111, 159, 0.08);
+}
+
 .compact-stack {
   padding: 16px;
 }
@@ -1249,6 +1289,10 @@ button {
   }
 
   .provider-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .package-grid {
     grid-template-columns: 1fr;
   }
 

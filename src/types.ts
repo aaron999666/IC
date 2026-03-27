@@ -178,3 +178,33 @@ export type ContactUnlockRecord = {
   points_spent: number
   unlocked_at: string
 }
+
+export type RechargeOrderStatus =
+  | 'pending'
+  | 'processing'
+  | 'paid'
+  | 'cancelled'
+  | 'expired'
+  | 'failed'
+
+export type RechargeOrder = {
+  id: string
+  order_no: string
+  status: RechargeOrderStatus
+  amount_cny: number
+  points_amount: number
+  bonus_points: number
+  total_points: number
+  currency: string
+  payment_channel: string | null
+  payment_url: string | null
+  external_order_no: string | null
+  external_trade_no: string | null
+  note: string | null
+  paid_amount_cny: number | null
+  paid_at: string | null
+  credited_at: string | null
+  expires_at: string | null
+  created_at: string
+  requested_by: string | null
+}

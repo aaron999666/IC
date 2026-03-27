@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { loadAdminAiConsole } from '../lib/adminConsole'
-import { BILLING_PORTAL_URL } from '../lib/billing'
+import { BILLING_PORTAL_URL, canManageBilling, formatMoneyCny, listRechargeOrders } from '../lib/billing'
 import {
   getPointsBalance,
   getRecentPointsLedger,
@@ -13,6 +13,7 @@ import type {
   AdminAiProviderConfig,
   ContactUnlockRecord,
   PointsLedgerEntry,
+  RechargeOrder,
 } from '../types'
 
 function formatDateTime(value: string | null | undefined) {
@@ -62,6 +63,7 @@ function DashboardPage() {
   const [pointsBalance, setPointsBalance] = useState<number>(0)
   const [ledgerEntries, setLedgerEntries] = useState<PointsLedgerEntry[]>([])
   const [unlockHistory, setUnlockHistory] = useState<ContactUnlockRecord[]>([])
+  const [rechargeOrders, setRechargeOrders] = useState<RechargeOrder[]>([])
   const [adminConfigs, setAdminConfigs] = useState<AdminAiProviderConfig[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -73,6 +75,7 @@ function DashboardPage() {
 
     const companyId = selectedCompanyId
     const accessToken = session.access_token
+    const billingAccess = canManageBilling(selectedRole)
     let isCancelled = false
 
     async function loadPrivateDashboard() {
@@ -80,10 +83,13 @@ function DashboardPage() {
       setLoadError(null)
 
       try {
-        const [balance, ledger, unlocks, adminConsole] = await Promise.all([
+        const [balance, ledger, unlocks, orders, adminConsole] = await Promise.all([
           getPointsBalance(companyId),
           getRecentPointsLedger(companyId, 8),
           listUnlockedInventoryContacts(companyId, 8),
+          billingAccess
+            ? listRechargeOrders(accessToken, companyId, 6)
+            : Promise.resolve([]),
           isAdmin && accessToken
             ? loadAdminAiConsole(accessToken, 8)
             : Promise.resolve({ configs: [], auditLogs: [] }),
@@ -96,6 +102,7 @@ function DashboardPage() {
         setPointsBalance(balance)
         setLedgerEntries(ledger)
         setUnlockHistory(unlocks)
+        setRechargeOrders(orders)
         setAdminConfigs(adminConsole.configs)
       } catch (error) {
         if (!isCancelled) {
@@ -113,7 +120,7 @@ function DashboardPage() {
     return () => {
       isCancelled = true
     }
-  }, [isAdmin, isConfigured, isReady, selectedCompanyId, session])
+  }, [isAdmin, isConfigured, isReady, selectedCompanyId, selectedRole, session])
 
   const enabledProviders = adminConfigs
     .filter((config) => config.enabled)
@@ -264,7 +271,7 @@ function DashboardPage() {
         <article className="content-card">
           <div className="panel-heading">
             <span className="panel-code">WORKFLOW</span>
-            <h2>Operational loop</h2>
+            <h2>Workflow and recharge handoff</h2>
           </div>
           <ul className="plain-list">
             <li>Buyers unlock seller contacts from the market board through a server-side RPC with points deduction.</li>
@@ -276,6 +283,15 @@ function DashboardPage() {
             <p>Use the domestic billing rail when points run low.</p>
             <span>主站继续保持纯信息流，法币支付、回调和对账可以放在国内备案服务器承接。</span>
           </div>
+          {rechargeOrders[0] ? (
+            <div className="stack-block compact-stack">
+              <h3>Latest recharge order</h3>
+              <p>{rechargeOrders[0].order_no}</p>
+              <span>
+                {rechargeOrders[0].status} · {formatMoneyCny(rechargeOrders[0].amount_cny)} CNY · {formatPoints(rechargeOrders[0].total_points)} pts
+              </span>
+            </div>
+          ) : null}
           <div className="form-toolbar">
             <Link className="secondary-action inline-link-button" to="/recharge">
               Open recharge center

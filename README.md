@@ -79,6 +79,8 @@ Copy `.dev.vars.example` for local Pages Function testing:
 - `SUPABASE_DEFAULT_SUBMITTED_BY_USER_ID`
 - `ADMIN_ENCRYPTION_KEY`
 - `AI_CONFIG_CACHE_TTL_SECONDS`
+- `BILLING_PORTAL_URL`
+- `BILLING_WEBHOOK_SECRET`
 
 ## BOM parsing flow
 
@@ -134,6 +136,23 @@ Recommended production split:
 - `pay.iccorehub.com` runs on your domestic filed server for Alipay / WeChat / bank transfer / invoice rails
 - successful payment callbacks update `points_accounts` and `points_ledger`
 - `/recharge`, `/dashboard` and `/admin/ai` are marked `noindex` and blocked in `robots.txt`
+
+Current implementation details:
+
+- only `owner`, `admin`, `finance` and `ops` roles can create or inspect recharge orders
+- recharge orders are stored in `public.recharge_orders`
+- domestic payment callbacks hit `functions/api/billing/callback.ts`
+- successful callbacks insert a `recharge_topup` row into `points_ledger`
+- callback payloads are retained in `public.billing_callback_logs` for auditability
+
+Frontend and function files:
+
+- `src/pages/RechargePage.tsx`
+- `src/lib/billing.ts`
+- `functions/api/billing/orders.ts`
+- `functions/api/billing/callback.ts`
+- `functions/api/billing/shared.ts`
+- `supabase/migrations/20260327113000_add_recharge_orders_and_billing_callbacks.sql`
 
 ## SEO and GEO assets
 
