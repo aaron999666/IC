@@ -21,6 +21,7 @@
 - pure information-flow MVP layer at `supabase/migrations/20260326210000_add_information_flow_mvp_layer.sql`
 - Cloudflare Pages config in `wrangler.toml`
 - custom brand mark at `public/iccorehub-mark.svg`
+- domestic payment portal reference implementation at `domestic-billing/`
 
 ## Stack
 
@@ -144,6 +145,7 @@ Current implementation details:
 - domestic payment callbacks hit `functions/api/billing/callback.ts`
 - successful callbacks insert a `recharge_topup` row into `points_ledger`
 - callback payloads are retained in `public.billing_callback_logs` for auditability
+- signed callbacks now support `X-ICCoreHub-Billing-Timestamp` + `X-ICCoreHub-Billing-Signature` HMAC verification
 
 Frontend and function files:
 
@@ -152,7 +154,32 @@ Frontend and function files:
 - `functions/api/billing/orders.ts`
 - `functions/api/billing/callback.ts`
 - `functions/api/billing/shared.ts`
+- `functions/api/billing/signature.ts`
 - `supabase/migrations/20260327113000_add_recharge_orders_and_billing_callbacks.sql`
+
+## Domestic payment portal
+
+The repo now also includes a standalone domestic deployment reference at `domestic-billing/`.
+
+Use it when:
+
+- `pay.iccorehub.com` must run on your domestic filed server
+- the payment gateway SDK and merchant certificates must stay out of Cloudflare
+- you want a dedicated adapter layer between Alipay / WeChat callbacks and the main ICCoreHub site
+
+Key files:
+
+- `domestic-billing/server.mjs`
+- `domestic-billing/.env.example`
+- `domestic-billing/README.md`
+
+The domestic portal:
+
+- loads recharge orders from Supabase by `checkout_token`
+- renders checkout and status pages
+- forwards signed callbacks to the main site
+- exposes `/gateway/notify` for your provider-specific adapter
+- can optionally simulate payment locally through `BILLING_ENABLE_MOCK_PAYMENT=true`
 
 ## SEO and GEO assets
 

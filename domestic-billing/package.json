@@ -1,0 +1,10 @@
+{
+  "name": "iccorehub-domestic-billing",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch server.mjs",
+    "start": "node server.mjs",
+    "check": "node --check server.mjs"
+  }
+}

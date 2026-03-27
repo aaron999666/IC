@@ -5,6 +5,7 @@ import {
   onRequestOptions,
   type BillingEnv,
 } from './shared'
+import { verifyBillingSignature } from './signature'
 
 interface PagesFunctionContext<TEnv> {
   request: Request
@@ -37,6 +38,14 @@ function getWebhookSecret(request: Request) {
   return request.headers.get('X-ICCoreHub-Billing-Secret')?.trim() ?? ''
 }
 
+function getSignatureHeader(request: Request) {
+  return request.headers.get('X-ICCoreHub-Billing-Signature')?.trim() ?? ''
+}
+
+function getTimestampHeader(request: Request) {
+  return request.headers.get('X-ICCoreHub-Billing-Timestamp')?.trim() ?? ''
+}
+
 export { onRequestOptions }
 
 export async function onRequestPost(context: PagesFunctionContext<BillingEnv>) {
@@ -46,11 +55,32 @@ export async function onRequestPost(context: PagesFunctionContext<BillingEnv>) {
     return jsonResponse({ error: 'BILLING_WEBHOOK_SECRET is not configured.' }, 500)
   }
 
-  if (getWebhookSecret(request) !== env.BILLING_WEBHOOK_SECRET.trim()) {
+  const rawBody = await request.text()
+  const hasSignedHeaders = Boolean(getTimestampHeader(request) && getSignatureHeader(request))
+
+  if (hasSignedHeaders) {
+    const verified = await verifyBillingSignature(
+      env.BILLING_WEBHOOK_SECRET.trim(),
+      getTimestampHeader(request),
+      getSignatureHeader(request),
+      rawBody,
+    )
+
+    if (!verified) {
+      return jsonResponse({ error: 'Invalid billing callback signature.' }, 401)
+    }
+  } else if (getWebhookSecret(request) !== env.BILLING_WEBHOOK_SECRET.trim()) {
     return jsonResponse({ error: 'Invalid billing callback secret.' }, 401)
   }
 
-  const body = (await request.json().catch(() => null)) as BillingCallbackBody | null
+  let body: BillingCallbackBody | null = null
+
+  try {
+    body = (JSON.parse(rawBody || 'null')) as BillingCallbackBody | null
+  } catch {
+    return badRequest('Billing callback body must be valid JSON.')
+  }
+
   const orderNo = body?.orderNo?.trim() ?? ''
   const nextStatus = body?.status?.trim() ?? ''
 
