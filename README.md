@@ -177,7 +177,8 @@ The domestic portal:
 
 - loads recharge orders from Supabase by `checkout_token`
 - renders checkout and status pages
-- forwards signed callbacks to the main site
+- renders real Alipay QR codes through `alipay.trade.precreate` when merchant credentials are configured
+- verifies Alipay async notifications locally and forwards signed callbacks to the main site
 - exposes `/gateway/notify` for your provider-specific adapter
 - can optionally simulate payment locally through `BILLING_ENABLE_MOCK_PAYMENT=true`
 

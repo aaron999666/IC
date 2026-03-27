@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   BILLING_PORTAL_URL,
   RECHARGE_PACKAGES,
@@ -76,6 +76,7 @@ function RechargePage() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isPolling, setIsPolling] = useState(false)
   const [latestOrder, setLatestOrder] = useState<RechargeOrder | null>(null)
 
   const billingAccess = canManageBilling(selectedRole)
@@ -85,17 +86,19 @@ function RechargePage() {
     [selectedAmount],
   )
 
-  useEffect(() => {
-    if (!isConfigured || !session || !selectedCompanyId || !billingAccess) {
-      return
-    }
+  const loadBillingDesk = useCallback(
+    async (silent = false) => {
+      if (!isConfigured || !session || !selectedCompanyId || !billingAccess) {
+        return
+      }
 
-    const companyId = selectedCompanyId
-    const accessToken = session.access_token
-    let isCancelled = false
+      const companyId = selectedCompanyId
+      const accessToken = session.access_token
 
-    async function loadBillingDesk() {
-      setIsLoading(true)
+      if (!silent) {
+        setIsLoading(true)
+      }
+
       setLoadError(null)
 
       try {
@@ -104,29 +107,51 @@ function RechargePage() {
           listRechargeOrders(accessToken, companyId, 12),
         ])
 
-        if (isCancelled) {
-          return
-        }
-
         setBalance(nextBalance)
         setOrders(nextOrders)
+        setLatestOrder((current) => {
+          if (current) {
+            return nextOrders.find((item) => item.id === current.id) ?? current
+          }
+
+          return nextOrders[0] ?? null
+        })
       } catch (error) {
-        if (!isCancelled) {
-          setLoadError(error instanceof Error ? error.message : 'Failed to load recharge data.')
-        }
+        setLoadError(error instanceof Error ? error.message : 'Failed to load recharge data.')
       } finally {
-        if (!isCancelled) {
+        if (!silent) {
           setIsLoading(false)
         }
       }
+    },
+    [billingAccess, isConfigured, selectedCompanyId, session],
+  )
+
+  useEffect(() => {
+    void loadBillingDesk()
+  }, [loadBillingDesk])
+
+  const hasPendingOrders = orders.some(
+    (order) => order.status === 'pending' || order.status === 'processing',
+  )
+
+  useEffect(() => {
+    if (!billingAccess || !session || !selectedCompanyId || !hasPendingOrders) {
+      setIsPolling(false)
+      return
     }
 
-    void loadBillingDesk()
+    setIsPolling(true)
+
+    const intervalId = window.setInterval(() => {
+      void loadBillingDesk(true)
+    }, 8000)
 
     return () => {
-      isCancelled = true
+      window.clearInterval(intervalId)
+      setIsPolling(false)
     }
-  }, [billingAccess, isConfigured, selectedCompanyId, session])
+  }, [billingAccess, hasPendingOrders, loadBillingDesk, selectedCompanyId, session])
 
   async function handleCreateOrder() {
     if (!session || !selectedCompanyId) {
@@ -166,7 +191,10 @@ function RechargePage() {
         <div className="note-card">
           <span>Current balance</span>
           <strong>{formatPoints(balance)} pts</strong>
-          <p>{selectedCompanyName ?? 'No company selected'}</p>
+          <p>
+            {selectedCompanyName ?? 'No company selected'}
+            {isPolling ? ' · 正在每 8 秒轮询到账状态' : ''}
+          </p>
         </div>
       </section>
 
@@ -251,12 +279,23 @@ function RechargePage() {
             >
               Open pay.iccorehub.com
             </a>
+            <button
+              type="button"
+              className="secondary-action inline-link-button"
+              onClick={() => void loadBillingDesk(true)}
+              disabled={!billingAccess}
+            >
+              Refresh order status
+            </button>
           </div>
           {selectedPackage ? (
             <p className="status-detail">
               当前套餐：<strong>{selectedPackage.label}</strong>，到账后预计增加{' '}
               <strong>{formatPoints(selectedAmount * 10)} pts</strong>。
             </p>
+          ) : null}
+          {hasPendingOrders ? (
+            <p className="status-detail">当前存在待支付订单，页面会自动轮询最新支付状态与积分余额。</p>
           ) : null}
           {submitError ? <p className="inline-error">{submitError}</p> : null}
           {latestOrder ? (

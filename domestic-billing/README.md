@@ -33,6 +33,16 @@ Copy `.env.example` to `.env` and set:
 - `BILLING_WEBHOOK_SECRET`
 - `DOMESTIC_GATEWAY_SECRET`
 - `BILLING_ENABLE_MOCK_PAYMENT`
+- `ALIPAY_APP_ID`
+- `ALIPAY_MODE`
+- `ALIPAY_PRIVATE_KEY_PATH` or `ALIPAY_PRIVATE_KEY`
+- `ALIPAY_PUBLIC_KEY_PATH` or `ALIPAY_PUBLIC_KEY`
+- `ALIPAY_KEY_TYPE`
+- `ALIPAY_NOTIFY_URL`
+- `ALIPAY_GATEWAY_ENDPOINT`
+- `ALIPAY_APP_CERT_PATH`
+- `ALIPAY_ALIPAY_PUBLIC_CERT_PATH`
+- `ALIPAY_ALIPAY_ROOT_CERT_PATH`
 
 ## Start
 
@@ -47,6 +57,13 @@ For local development:
 cd domestic-billing
 npm run dev
 ```
+
+Deployment templates live in `deploy/`:
+
+- `deploy/nginx.pay.iccorehub.com.conf`
+- `deploy/ecosystem.config.cjs`
+- `deploy/iccorehub-domestic-billing.service`
+- `deploy/DEPLOYMENT.md`
 
 ## Domestic gateway adapter
 
@@ -79,6 +96,23 @@ Example body:
 
 The portal signs that payload with `BILLING_WEBHOOK_SECRET` and forwards it to the main site callback.
 
+## Alipay face-to-face flow
+
+When `payment_channel = alipay_qr` and Alipay credentials are configured:
+
+- `GET /checkout?token=...` will call `alipay.trade.precreate`
+- the returned `qr_code` is persisted back into `recharge_orders`
+- the checkout page renders a real QR code SVG
+- Alipay async notify should point to `POST /gateway/alipay/notify`
+- the domestic portal verifies the Alipay signature locally and then forwards a signed callback to the main site
+
+If you want certificate mode, set:
+
+- `ALIPAY_MODE=cert`
+- `ALIPAY_APP_CERT_PATH`
+- `ALIPAY_ALIPAY_PUBLIC_CERT_PATH`
+- `ALIPAY_ALIPAY_ROOT_CERT_PATH`
+
 ## Security notes
 
 - keep `SUPABASE_SERVICE_ROLE_KEY` only on the domestic server
@@ -86,3 +120,4 @@ The portal signs that payload with `BILLING_WEBHOOK_SECRET` and forwards it to t
 - keep `DOMESTIC_GATEWAY_SECRET` private between your local payment adapter and this portal
 - disable `BILLING_ENABLE_MOCK_PAYMENT` in production
 - add your gateway-native signature verification before you trust any upstream provider callback
+- do not store Alipay private keys in the repo; use local files or environment variables on the domestic host

@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import http from 'node:http'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { AlipaySdk } from 'alipay-sdk'
+import QRCode from 'qrcode'
 
 const rootDir = dirname(fileURLToPath(import.meta.url))
 
@@ -21,7 +23,21 @@ const config = {
   billingWebhookSecret: (process.env.BILLING_WEBHOOK_SECRET || '').trim(),
   domesticGatewaySecret: (process.env.DOMESTIC_GATEWAY_SECRET || '').trim(),
   billingEnableMockPayment: (process.env.BILLING_ENABLE_MOCK_PAYMENT || 'false').trim().toLowerCase() === 'true',
+  alipayAppId: (process.env.ALIPAY_APP_ID || '').trim(),
+  alipayMode: (process.env.ALIPAY_MODE || 'public_key').trim().toLowerCase(),
+  alipayPrivateKey: process.env.ALIPAY_PRIVATE_KEY || '',
+  alipayPrivateKeyPath: process.env.ALIPAY_PRIVATE_KEY_PATH || '',
+  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY || '',
+  alipayPublicKeyPath: process.env.ALIPAY_PUBLIC_KEY_PATH || '',
+  alipayAppCertPath: process.env.ALIPAY_APP_CERT_PATH || '',
+  alipayAlipayPublicCertPath: process.env.ALIPAY_ALIPAY_PUBLIC_CERT_PATH || '',
+  alipayAlipayRootCertPath: process.env.ALIPAY_ALIPAY_ROOT_CERT_PATH || '',
+  alipayKeyType: (process.env.ALIPAY_KEY_TYPE || 'PKCS1').trim(),
+  alipayNotifyUrl: (process.env.ALIPAY_NOTIFY_URL || '').trim(),
+  alipayGatewayEndpoint: (process.env.ALIPAY_GATEWAY_ENDPOINT || '').trim(),
 }
+
+let alipayClientCache = null
 
 const htmlShell = (title, body, options = {}) => `<!doctype html>
 <html lang="zh-CN">
@@ -45,6 +61,7 @@ const htmlShell = (title, body, options = {}) => `<!doctype html>
         --signal: #112034;
         --warn: #8a4b15;
         --danger: #b33a20;
+        --success: #0d5d55;
       }
       * { box-sizing: border-box; }
       body {
@@ -174,7 +191,7 @@ const htmlShell = (title, body, options = {}) => `<!doctype html>
         padding: 0 14px;
         font-size: 0.8rem;
       }
-      .status-pill-paid { background: rgba(12, 119, 109, 0.12); color: #0d5d55; border-color: rgba(12, 119, 109, 0.18); }
+      .status-pill-paid { background: rgba(12, 119, 109, 0.12); color: var(--success); border-color: rgba(12, 119, 109, 0.18); }
       .status-pill-pending, .status-pill-processing { background: var(--accent-soft); color: var(--accent); border-color: rgba(45, 111, 159, 0.2); }
       .status-pill-cancelled, .status-pill-expired, .status-pill-failed { background: rgba(179, 58, 32, 0.08); color: var(--danger); border-color: rgba(179, 58, 32, 0.16); }
       ul { margin: 0; padding-left: 18px; }
@@ -201,10 +218,35 @@ const htmlShell = (title, body, options = {}) => `<!doctype html>
         border-color: rgba(179, 58, 32, 0.18);
         color: var(--danger);
       }
+      .success {
+        background: rgba(12, 119, 109, 0.08);
+        border-color: rgba(12, 119, 109, 0.16);
+        color: var(--success);
+      }
       .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
       form { margin: 0; }
+      .qr-shell {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 16px;
+        align-items: center;
+      }
+      .qr-shell svg {
+        width: 220px;
+        height: 220px;
+        border-radius: 20px;
+        background: #fff;
+        padding: 12px;
+      }
+      .qr-copy {
+        display: grid;
+        gap: 10px;
+      }
+      .qr-link {
+        word-break: break-all;
+      }
       @media (max-width: 920px) {
-        .grid, .summary {
+        .grid, .summary, .qr-shell {
           grid-template-columns: 1fr;
         }
       }
@@ -223,9 +265,9 @@ const htmlShell = (title, body, options = {}) => `<!doctype html>
           <span class="chip">Signed callback</span>
         </div>
       </header>
-      ${body}
+      <!--BODY-->
       <div class="footer">
-        This portal is designed for domestic deployment. Keep provider keys and callback secrets on this server only.
+        This portal is designed for domestic deployment. Keep provider keys, gateway secrets and callback secrets on this server only.
       </div>
     </div>
   </body>
@@ -308,12 +350,20 @@ function json(response, status, payload) {
   response.end(JSON.stringify(payload, null, 2))
 }
 
+function text(response, status, value) {
+  response.writeHead(status, {
+    'Content-Type': 'text/plain; charset=utf-8',
+    'Cache-Control': 'no-store',
+  })
+  response.end(value)
+}
+
 function html(response, status, title, body, options = {}) {
   response.writeHead(status, {
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
   })
-  response.end(htmlShell(title, body, options))
+  response.end(htmlShell(title, body, options).replace('<!--BODY-->', body))
 }
 
 function redirect(response, location) {
@@ -326,6 +376,77 @@ function redirect(response, location) {
 
 function missingConfig() {
   return !config.supabaseUrl || !config.supabaseServiceRoleKey || !config.billingWebhookSecret
+}
+
+function readSecretValue(inlineValue, filePath) {
+  if (inlineValue?.trim()) {
+    return inlineValue.trim().replace(/\\n/g, '\n')
+  }
+
+  if (filePath?.trim()) {
+    return readFileSync(filePath.trim(), 'utf8').trim()
+  }
+
+  return ''
+}
+
+function buildAlipayNotifyUrl() {
+  return config.alipayNotifyUrl || `${config.billingPortalPublicUrl}/gateway/alipay/notify`
+}
+
+function hasAlipayRuntimeConfig() {
+  const privateKey = readSecretValue(config.alipayPrivateKey, config.alipayPrivateKeyPath)
+
+  if (!config.alipayAppId || !privateKey) {
+    return false
+  }
+
+  if (config.alipayMode === 'cert') {
+    return Boolean(
+      config.alipayAppCertPath?.trim() &&
+      config.alipayAlipayPublicCertPath?.trim() &&
+      config.alipayAlipayRootCertPath?.trim(),
+    )
+  }
+
+  return Boolean(
+    readSecretValue(config.alipayPublicKey, config.alipayPublicKeyPath),
+  )
+}
+
+function getAlipayClient() {
+  if (alipayClientCache) {
+    return alipayClientCache
+  }
+
+  if (!hasAlipayRuntimeConfig()) {
+    return null
+  }
+
+  const privateKey = readSecretValue(config.alipayPrivateKey, config.alipayPrivateKeyPath)
+
+  const baseConfig = {
+    appId: config.alipayAppId,
+    privateKey,
+    keyType: config.alipayKeyType || 'PKCS1',
+    ...(config.alipayGatewayEndpoint ? { endpoint: config.alipayGatewayEndpoint } : {}),
+  }
+
+  if (config.alipayMode === 'cert') {
+    alipayClientCache = new AlipaySdk({
+      ...baseConfig,
+      appCertPath: config.alipayAppCertPath.trim(),
+      alipayPublicCertPath: config.alipayAlipayPublicCertPath.trim(),
+      alipayRootCertPath: config.alipayAlipayRootCertPath.trim(),
+    })
+  } else {
+    alipayClientCache = new AlipaySdk({
+      ...baseConfig,
+      alipayPublicKey: readSecretValue(config.alipayPublicKey, config.alipayPublicKeyPath),
+    })
+  }
+
+  return alipayClientCache
 }
 
 async function readRawBody(request) {
@@ -343,6 +464,34 @@ function parseFormEncoded(rawBody) {
   return Object.fromEntries(params.entries())
 }
 
+function parseFormPreserveValues(rawBody) {
+  const result = {}
+
+  for (const pair of rawBody.split('&')) {
+    if (!pair) {
+      continue
+    }
+
+    const separatorIndex = pair.indexOf('=')
+    const rawKey = separatorIndex >= 0 ? pair.slice(0, separatorIndex) : pair
+    const rawValue = separatorIndex >= 0 ? pair.slice(separatorIndex + 1) : ''
+    const key = decodeURIComponent(rawKey.replace(/\+/g, '%20'))
+
+    result[key] = rawValue
+  }
+
+  return result
+}
+
+function decodeFormObject(object) {
+  const entries = Object.entries(object).map(([key, value]) => [
+    key,
+    decodeURIComponent(String(value ?? '').replace(/\+/g, '%20')),
+  ])
+
+  return Object.fromEntries(entries)
+}
+
 async function supabaseFetch(path, init = {}) {
   if (missingConfig()) {
     throw new Error('Missing Supabase or billing secret configuration for domestic billing portal.')
@@ -358,8 +507,8 @@ async function supabaseFetch(path, init = {}) {
     },
   })
 
-  const text = await response.text()
-  const payload = text ? JSON.parse(text) : null
+  const textContent = await response.text()
+  const payload = textContent ? JSON.parse(textContent) : null
 
   if (!response.ok) {
     throw new Error(payload?.message || `Supabase request failed with ${response.status}`)
@@ -393,12 +542,15 @@ function mapOrder(row) {
     creditedAt: row.credited_at || null,
     expiresAt: row.expires_at || null,
     createdAt: row.created_at,
+    providerCheckoutUrl: row.provider_checkout_url || null,
+    providerCheckoutQrCode: row.provider_checkout_qr_code || null,
+    providerCheckoutPayload: row.provider_checkout_payload || {},
+    providerCheckoutGeneratedAt: row.provider_checkout_generated_at || null,
   }
 }
-
 async function getOrderByCheckoutToken(token) {
   const rows = await supabaseFetch(
-    `/rest/v1/recharge_orders?checkout_token=eq.${encodeURIComponent(token)}&select=id,order_no,checkout_token,company_id,status,amount_cny,points_amount,bonus_points,total_points,currency,payment_channel,external_order_no,external_trade_no,note,paid_amount_cny,paid_at,credited_at,expires_at,created_at&limit=1`,
+    `/rest/v1/recharge_orders?checkout_token=eq.${encodeURIComponent(token)}&select=id,order_no,checkout_token,company_id,status,amount_cny,points_amount,bonus_points,total_points,currency,payment_channel,external_order_no,external_trade_no,note,paid_amount_cny,paid_at,credited_at,expires_at,created_at,provider_checkout_url,provider_checkout_qr_code,provider_checkout_payload,provider_checkout_generated_at&limit=1`,
     { method: 'GET' },
   )
 
@@ -407,11 +559,21 @@ async function getOrderByCheckoutToken(token) {
 
 async function getOrderByOrderNo(orderNo) {
   const rows = await supabaseFetch(
-    `/rest/v1/recharge_orders?order_no=eq.${encodeURIComponent(orderNo)}&select=id,order_no,checkout_token,company_id,status,amount_cny,points_amount,bonus_points,total_points,currency,payment_channel,external_order_no,external_trade_no,note,paid_amount_cny,paid_at,credited_at,expires_at,created_at&limit=1`,
+    `/rest/v1/recharge_orders?order_no=eq.${encodeURIComponent(orderNo)}&select=id,order_no,checkout_token,company_id,status,amount_cny,points_amount,bonus_points,total_points,currency,payment_channel,external_order_no,external_trade_no,note,paid_amount_cny,paid_at,credited_at,expires_at,created_at,provider_checkout_url,provider_checkout_qr_code,provider_checkout_payload,provider_checkout_generated_at&limit=1`,
     { method: 'GET' },
   )
 
   return mapOrder(rows?.[0] || null)
+}
+
+async function patchRechargeOrder(id, payload) {
+  await supabaseFetch(`/rest/v1/recharge_orders?id=eq.${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: {
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(payload),
+  })
 }
 
 async function signCallbackPayload(secret, timestamp, rawBody) {
@@ -436,14 +598,82 @@ async function forwardCallback(payload) {
     body: rawBody,
   })
 
-  const text = await response.text()
-  const payloadResponse = text ? JSON.parse(text) : null
+  const textContent = await response.text()
+  const payloadResponse = textContent ? JSON.parse(textContent) : null
 
   if (!response.ok) {
     throw new Error(payloadResponse?.error || `Main-site callback failed with ${response.status}`)
   }
 
   return payloadResponse
+}
+
+function buildRechargeSubject(order) {
+  return `芯汇积分充值 ${order.orderNo}`
+}
+
+function buildRechargeBody(order) {
+  return `ICCoreHub points recharge for ${order.totalPoints} pts`
+}
+
+async function createAlipayPrecreate(order, force = false) {
+  const alipayClient = getAlipayClient()
+
+  if (!alipayClient) {
+    throw new Error('Alipay is not configured on this domestic billing server.')
+  }
+
+  if (!force && order.providerCheckoutQrCode && order.providerCheckoutGeneratedAt) {
+    return {
+      order,
+      qrCode: order.providerCheckoutQrCode,
+      qrSvg: await QRCode.toString(order.providerCheckoutQrCode, { type: 'svg', margin: 1, width: 240 }),
+      generatedAt: order.providerCheckoutGeneratedAt,
+    }
+  }
+
+  const result = await alipayClient.exec('alipay.trade.precreate', {
+    notify_url: buildAlipayNotifyUrl(),
+    bizContent: {
+      out_trade_no: order.orderNo,
+      total_amount: order.amountCny.toFixed(2),
+      subject: buildRechargeSubject(order),
+      body: buildRechargeBody(order),
+      timeout_express: '120m',
+      qr_code_timeout_express: '120m',
+      store_id: 'ICCOREHUB',
+    },
+  })
+
+  if (result?.code !== '10000' || !result?.qr_code) {
+    throw new Error(result?.sub_msg || result?.msg || 'Alipay precreate did not return a QR code.')
+  }
+
+  const generatedAt = new Date().toISOString()
+
+  await patchRechargeOrder(order.id, {
+    payment_channel: 'alipay_qr',
+    provider_checkout_url: result.qr_code,
+    provider_checkout_qr_code: result.qr_code,
+    provider_checkout_payload: result,
+    provider_checkout_generated_at: generatedAt,
+  })
+
+  const nextOrder = {
+    ...order,
+    paymentChannel: 'alipay_qr',
+    providerCheckoutUrl: result.qr_code,
+    providerCheckoutQrCode: result.qr_code,
+    providerCheckoutPayload: result,
+    providerCheckoutGeneratedAt: generatedAt,
+  }
+
+  return {
+    order: nextOrder,
+    qrCode: result.qr_code,
+    qrSvg: await QRCode.toString(result.qr_code, { type: 'svg', margin: 1, width: 240 }),
+    generatedAt,
+  }
 }
 
 function renderHomePage() {
@@ -465,8 +695,8 @@ function renderHomePage() {
           <span class="muted">callback target</span>
         </div>
         <div class="chip">
-          <strong>${config.billingEnableMockPayment ? 'mock enabled' : 'mock disabled'}</strong>
-          <span class="muted">local test mode</span>
+          <strong>${hasAlipayRuntimeConfig() ? 'alipay ready' : 'alipay not configured'}</strong>
+          <span class="muted">provider status</span>
         </div>
       </div>
     </section>
@@ -479,6 +709,7 @@ function renderHomePage() {
         <ul>
           <li><code>GET /checkout?token=...</code> renders a private order payment page.</li>
           <li><code>GET /status?token=...</code> renders a private order status page with auto refresh while pending.</li>
+          <li><code>POST /gateway/alipay/notify</code> verifies Alipay async notifications and forwards a signed callback to the main site.</li>
           <li><code>POST /gateway/notify</code> accepts a trusted domestic adapter payload and forwards a signed callback to the main site.</li>
           <li><code>POST /pay/mock-success</code> is for local integration testing only.</li>
         </ul>
@@ -492,16 +723,20 @@ function renderHomePage() {
           <li>Checkout pages use a high-entropy <code>checkout_token</code>, not raw company IDs.</li>
           <li>Main-site callbacks are HMAC signed with <code>BILLING_WEBHOOK_SECRET</code>.</li>
           <li><code>/gateway/notify</code> requires <code>DOMESTIC_GATEWAY_SECRET</code>.</li>
-          <li>Production should disable mock payment and add your gateway-specific signature verification.</li>
+          <li>支付宝通知先在国内站本地验签，再转发到主站。</li>
+          <li>Production should disable mock payment and add your gateway-specific signature verification where needed.</li>
         </ul>
       </article>
     </section>
   `
 }
 
-function renderCheckoutPage(order, flashMessage = '') {
+function renderCheckoutPage(order, options = {}) {
+  const flashMessage = options.flashMessage || ''
   const isPaid = order.status === 'paid'
   const isPending = order.status === 'pending' || order.status === 'processing'
+  const providerIsAlipay = order.paymentChannel === 'alipay_qr'
+  const alipayReady = hasAlipayRuntimeConfig()
 
   return `
     <section class="grid">
@@ -532,11 +767,44 @@ function renderCheckoutPage(order, flashMessage = '') {
             创建时间 ${escapeHtml(formatDateTime(order.createdAt))} · 过期时间 ${escapeHtml(formatDateTime(order.expiresAt))}
           </p>
         </div>
+        ${
+          providerIsAlipay && options.alipay?.qrSvg
+            ? `
+              <div class="field qr-shell">
+                ${options.alipay.qrSvg}
+                <div class="qr-copy">
+                  <h3>支付宝扫码支付</h3>
+                  <p>请使用支付宝扫描左侧二维码完成充值。支付成功后状态页会自动刷新，主站积分也会同步到账。</p>
+                  <div class="meta-row">
+                    <span class="chip">二维码生成于 ${escapeHtml(formatDateTime(options.alipay.generatedAt))}</span>
+                    <span class="chip">通知地址 ${escapeHtml(buildAlipayNotifyUrl())}</span>
+                  </div>
+                  <a class="qr-link muted" href="${escapeHtml(options.alipay.qrCode)}" target="_blank" rel="noreferrer">${escapeHtml(options.alipay.qrCode)}</a>
+                </div>
+              </div>
+            `
+            : providerIsAlipay && alipayReady && !isPaid
+              ? `
+                <form method="post" action="/gateway/alipay/precreate" class="field stack">
+                  <input type="hidden" name="token" value="${escapeHtml(order.checkoutToken)}" />
+                  <h3>生成支付宝二维码</h3>
+                  <p>当前订单还没有生成二维码，点击下面按钮向支付宝发起 <code>alipay.trade.precreate</code>。</p>
+                  <button type="submit" class="button">Generate Alipay QR</button>
+                </form>
+              `
+              : providerIsAlipay && !alipayReady
+                ? `
+                  <div class="flash danger">
+                    Alipay is not configured on this server yet. Set the merchant keys and certificates first, or keep using mock / bank-transfer flow.
+                  </div>
+                `
+                : ''
+        }
         <div class="note">
           <h3>How to wire a real gateway here</h3>
           <ul>
-            <li>接入支付宝当面付或微信 Native 支付，渲染真实二维码。</li>
-            <li>网关异步通知到本服务后，调用 <code>/gateway/notify</code> 或直接复用同一套转发逻辑。</li>
+            <li>支付宝二维码使用官方 SDK 发起 <code>alipay.trade.precreate</code>，并在本地处理异步通知。</li>
+            <li>微信或对公转账可以复用 <code>/gateway/notify</code> 这条可信回调适配通道。</li>
             <li>支付成功后主站会把积分写入 <code>points_ledger</code> 和 <code>points_accounts</code>。</li>
           </ul>
         </div>
@@ -559,6 +827,17 @@ function renderCheckoutPage(order, flashMessage = '') {
           <p>把你的商户订单号映射到 <code>${escapeHtml(order.orderNo)}</code>，回调成功后带上外部流水号一起签名转发。</p>
         </div>
         ${
+          providerIsAlipay && alipayReady && !isPaid
+            ? `
+              <form method="post" action="/gateway/alipay/precreate" class="stack">
+                <input type="hidden" name="token" value="${escapeHtml(order.checkoutToken)}" />
+                <button type="submit" class="button warn">Refresh Alipay QR</button>
+                <span class="muted">如果二维码失效或需要重新拉起，可重新预创建。</span>
+              </form>
+            `
+            : ''
+        }
+        ${
           config.billingEnableMockPayment && !isPaid
             ? `
               <form method="post" action="/pay/mock-success" class="stack">
@@ -573,7 +852,6 @@ function renderCheckoutPage(order, flashMessage = '') {
     </section>
   `
 }
-
 function renderStatusPage(order, flashMessage = '') {
   const autoRefreshSeconds =
     order.status === 'pending' || order.status === 'processing'
@@ -589,7 +867,7 @@ function renderStatusPage(order, flashMessage = '') {
           <h1>${escapeHtml(order.orderNo)}</h1>
           <p>这里用于给财务和采购查看当前充值单状态。待支付状态下页面会自动刷新，直到支付回调完成。</p>
         </div>
-        ${flashMessage ? `<div class="flash">${escapeHtml(flashMessage)}</div>` : ''}
+        ${flashMessage ? `<div class="flash success">${escapeHtml(flashMessage)}</div>` : ''}
         <div class="actions">
           <span class="${getStatusClass(order.status)}">${escapeHtml(order.status.toUpperCase())}</span>
           <a class="button secondary" href="/checkout?token=${encodeURIComponent(order.checkoutToken)}">Return to checkout</a>
@@ -703,6 +981,102 @@ async function handleGatewayNotify(request, response) {
   }
 }
 
+function mapAlipayTradeStatus(tradeStatus) {
+  if (tradeStatus === 'TRADE_SUCCESS' || tradeStatus === 'TRADE_FINISHED') {
+    return 'paid'
+  }
+
+  if (tradeStatus === 'WAIT_BUYER_PAY') {
+    return 'processing'
+  }
+
+  if (tradeStatus === 'TRADE_CLOSED') {
+    return 'cancelled'
+  }
+
+  return 'processing'
+}
+
+async function handleAlipayNotify(request, response) {
+  const alipayClient = getAlipayClient()
+  if (!alipayClient) {
+    return text(response, 500, 'failure')
+  }
+
+  const rawBody = await readRawBody(request)
+  const rawForm = parseFormPreserveValues(rawBody)
+  const signatureVerified = alipayClient.checkNotifySignV2(rawForm)
+
+  if (!signatureVerified) {
+    return text(response, 401, 'failure')
+  }
+
+  const form = decodeFormObject(rawForm)
+  const orderNo = String(form.out_trade_no || '').trim()
+
+  if (!orderNo) {
+    return text(response, 400, 'failure')
+  }
+
+  const order = await getOrderByOrderNo(orderNo)
+  if (!order) {
+    return text(response, 404, 'failure')
+  }
+
+  try {
+    await forwardCallback({
+      orderNo: order.orderNo,
+      status: mapAlipayTradeStatus(String(form.trade_status || '')),
+      externalTradeNo: String(form.trade_no || '').trim() || null,
+      externalOrderNo: order.orderNo,
+      paidAmountCny: Number(form.receipt_amount || form.total_amount || order.amountCny),
+      paymentChannel: 'alipay_qr',
+      source: 'alipay.notify',
+      message: `Alipay notify ${String(form.trade_status || '').trim() || 'UNKNOWN'}`,
+      payload: form,
+    })
+
+    return text(response, 200, 'success')
+  } catch {
+    return text(response, 500, 'failure')
+  }
+}
+
+async function handleAlipayPrecreate(request, response) {
+  const form = parseFormEncoded(await readRawBody(request))
+  const token = (form.token || '').trim()
+
+  if (!token) {
+    return html(
+      response,
+      400,
+      'Missing token',
+      `<section class="card"><p class="eyebrow">Alipay</p><h2>Missing checkout token.</h2><p>The precreate form requires a checkout token.</p></section>`,
+    )
+  }
+
+  const order = await getOrderByCheckoutToken(token)
+  if (!order) {
+    return html(
+      response,
+      404,
+      'Order not found',
+      `<section class="card"><p class="eyebrow">Alipay</p><h2>Recharge order not found.</h2><p>The checkout token is invalid or expired.</p></section>`,
+    )
+  }
+
+  try {
+    await createAlipayPrecreate(order, true)
+    return redirect(response, `/checkout?token=${encodeURIComponent(order.checkoutToken)}&flash=${encodeURIComponent('Alipay QR generated successfully.')}`)
+  } catch (error) {
+    return html(
+      response,
+      502,
+      'Alipay precreate failed',
+      `<section class="card"><p class="eyebrow">Alipay</p><h2>Failed to create Alipay QR.</h2><p>${escapeHtml(error instanceof Error ? error.message : 'Unknown Alipay error.')}</p></section>`,
+    )
+  }
+}
 async function handleMockSuccess(request, response) {
   if (!config.billingEnableMockPayment) {
     return html(
@@ -772,6 +1146,8 @@ async function requestHandler(request, response) {
       mainSiteCallbackUrl: config.mainSiteCallbackUrl,
       configured: !missingConfig(),
       mockPayment: config.billingEnableMockPayment,
+      alipayConfigured: hasAlipayRuntimeConfig(),
+      alipayNotifyUrl: buildAlipayNotifyUrl(),
     })
   }
 
@@ -801,7 +1177,7 @@ async function requestHandler(request, response) {
       )
     }
 
-    const order = await getOrderByCheckoutToken(token)
+    let order = await getOrderByCheckoutToken(token)
     if (!order) {
       return html(
         response,
@@ -811,11 +1187,30 @@ async function requestHandler(request, response) {
       )
     }
 
+    let alipayData = null
+
+    if (order.paymentChannel === 'alipay_qr' && (order.status === 'pending' || order.status === 'processing') && hasAlipayRuntimeConfig()) {
+      try {
+        const precreated = await createAlipayPrecreate(order)
+        order = precreated.order
+        alipayData = {
+          qrCode: precreated.qrCode,
+          qrSvg: precreated.qrSvg,
+          generatedAt: precreated.generatedAt,
+        }
+      } catch {
+        alipayData = null
+      }
+    }
+
     return html(
       response,
       200,
       `Checkout ${order.orderNo}`,
-      renderCheckoutPage(order, flash),
+      renderCheckoutPage(order, {
+        flashMessage: flash,
+        alipay: alipayData,
+      }),
     )
   }
 
@@ -838,6 +1233,14 @@ async function requestHandler(request, response) {
     return html(response, 200, `Status ${order.orderNo}`, page.markup, {
       autoRefreshSeconds: page.autoRefreshSeconds,
     })
+  }
+
+  if (request.method === 'POST' && url.pathname === '/gateway/alipay/precreate') {
+    return handleAlipayPrecreate(request, response)
+  }
+
+  if (request.method === 'POST' && url.pathname === '/gateway/alipay/notify') {
+    return handleAlipayNotify(request, response)
   }
 
   if (request.method === 'POST' && url.pathname === '/pay/mock-success') {
@@ -870,4 +1273,5 @@ const server = http.createServer((request, response) => {
 server.listen(config.port, config.host, () => {
   console.log(`[iccorehub-domestic-billing] listening on http://${config.host}:${config.port}`)
   console.log(`[iccorehub-domestic-billing] main-site callback -> ${config.mainSiteCallbackUrl}`)
+  console.log(`[iccorehub-domestic-billing] alipay notify -> ${buildAlipayNotifyUrl()}`)
 })
