@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { loadAdminAiConsole } from '../lib/adminConsole'
+import { BILLING_PORTAL_URL } from '../lib/billing'
 import {
   getPointsBalance,
   getRecentPointsLedger,
@@ -149,7 +150,7 @@ function DashboardPage() {
           <span className="panel-code">POINTS</span>
           <strong>{formatPoints(pointsBalance)}</strong>
           <p>Current company balance</p>
-          <span>{isLoading ? 'Loading private ledger...' : 'Real balance from `points_accounts`.'}</span>
+          <span>{isLoading ? 'Loading private ledger...' : 'Real balance from `points_accounts`, ready for recharge handoff.'}</span>
         </article>
         <article className="content-card summary-card">
           <span className="panel-code">UNLOCKS</span>
@@ -270,6 +271,24 @@ function DashboardPage() {
             <li>The same company then sees the deducted points and the unlocked contact in this dashboard.</li>
             <li>Admin-role operators can switch to `/admin/ai` to tune primary and backup engines, then come back here to watch the latest test status.</li>
           </ul>
+          <div className="stack-block compact-stack">
+            <h3>Recharge handoff</h3>
+            <p>Use the domestic billing rail when points run low.</p>
+            <span>主站继续保持纯信息流，法币支付、回调和对账可以放在国内备案服务器承接。</span>
+          </div>
+          <div className="form-toolbar">
+            <Link className="secondary-action inline-link-button" to="/recharge">
+              Open recharge center
+            </Link>
+            <a
+              className="primary-action inline-link-button"
+              href={BILLING_PORTAL_URL}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open pay.iccorehub.com
+            </a>
+          </div>
         </article>
       </section>
     </main>

@@ -2,5 +2,6 @@ User-agent: *
 Allow: /
 Disallow: /dashboard
 Disallow: /admin
+Disallow: /recharge
 
 Sitemap: https://iccorehub.com/sitemap.xml

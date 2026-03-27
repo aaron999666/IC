@@ -1,7 +1,9 @@
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import RechargePromptModal from '../components/RechargePromptModal'
 import { supplierRows } from '../data/mock'
 import { useAuth } from '../lib/auth'
+import { isInsufficientPointsMessage } from '../lib/billing'
 import { unlockInventoryContact } from '../lib/operations'
 import { hasSupabasePublicSearch, searchPublicInventory } from '../lib/publicInventory'
 import { buildWebPageSchema, useSeo } from '../lib/seo'
@@ -34,8 +36,9 @@ function MarketPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [revealingInventoryId, setRevealingInventoryId] = useState<string | null>(null)
   const [revealedContacts, setRevealedContacts] = useState<Record<string, RevealedContact>>({})
+  const [showRechargePrompt, setShowRechargePrompt] = useState(false)
   const deferredQuery = useDeferredValue(query)
-  const { session, selectedCompanyId } = useAuth()
+  const { session, selectedCompanyId, selectedCompanyName } = useAuth()
 
   useEffect(() => {
     setQuery(initialQuery)
@@ -206,7 +209,13 @@ function MarketPage() {
                                 },
                               }))
                             } catch (error) {
-                              setRevealError(error instanceof Error ? error.message : 'Failed to unlock seller contact.')
+                              const message =
+                                error instanceof Error ? error.message : 'Failed to unlock seller contact.'
+                              setRevealError(message)
+
+                              if (isInsufficientPointsMessage(message)) {
+                                setShowRechargePrompt(true)
+                              }
                             } finally {
                               setRevealingInventoryId(null)
                             }
@@ -249,6 +258,14 @@ function MarketPage() {
           </div>
         </aside>
       </section>
+
+      <RechargePromptModal
+        open={showRechargePrompt}
+        title="积分不足，无法解锁联系方式"
+        body="当前企业积分余额不足，暂时无法查看真实电话和微信。你可以前往国内备案支付入口完成充值，回到现货板后继续解锁。"
+        companyName={selectedCompanyName ?? null}
+        onClose={() => setShowRechargePrompt(false)}
+      />
     </main>
   )
 }

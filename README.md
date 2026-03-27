@@ -51,9 +51,12 @@ Copy `.env.example` and provide:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+- `VITE_BILLING_PORTAL_URL`
 - `VITE_APP_ENV`
 
 When `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` exist, the market board calls `search_public_inventory(...)`. Otherwise it falls back to the local demo dataset.
+
+`VITE_BILLING_PORTAL_URL` defaults to `https://pay.iccorehub.com` and is used by the recharge center plus all insufficient-points prompts.
 
 ## Cloudflare Pages Function environment
 
@@ -118,6 +121,19 @@ from public.unlock_inventory_contact(
   'buyer-company-uuid'
 );
 ```
+
+When the unlock RPC or BOM persistence returns an insufficient-points error, the frontend opens a private recharge prompt and directs the operator to `/recharge` or the external domestic billing portal.
+
+## Recharge and domestic payment split
+
+The repo now includes a protected `/recharge` center for authenticated companies.
+
+Recommended production split:
+
+- `iccorehub.com` keeps public search, BOM parsing UX and points consumption
+- `pay.iccorehub.com` runs on your domestic filed server for Alipay / WeChat / bank transfer / invoice rails
+- successful payment callbacks update `points_accounts` and `points_ledger`
+- `/recharge`, `/dashboard` and `/admin/ai` are marked `noindex` and blocked in `robots.txt`
 
 ## SEO and GEO assets
 

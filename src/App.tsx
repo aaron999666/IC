@@ -8,6 +8,7 @@ import DashboardPage from './pages/DashboardPage'
 import DataHubPage from './pages/DataHubPage'
 import HomePage from './pages/HomePage'
 import MarketPage from './pages/MarketPage'
+import RechargePage from './pages/RechargePage'
 
 const navItems = [
   { to: '/', label: 'Home' },
@@ -173,6 +174,14 @@ function App() {
           element={(
             <RequireAuth>
               <DashboardPage />
+            </RequireAuth>
+          )}
+        />
+        <Route
+          path="/recharge"
+          element={(
+            <RequireAuth>
+              <RechargePage />
             </RequireAuth>
           )}
         />

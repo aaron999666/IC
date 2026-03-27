@@ -943,6 +943,17 @@ button {
   align-items: center;
 }
 
+.inline-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.form-toolbar .primary-action.inline-link-button,
+.form-toolbar .secondary-action.inline-link-button {
+  min-height: 48px;
+}
+
 .secondary-action {
   min-height: 48px;
   border: 1px solid rgba(22, 36, 54, 0.14);
@@ -1125,6 +1136,37 @@ button {
   justify-self: end;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(17, 32, 52, 0.46);
+  backdrop-filter: blur(10px);
+}
+
+.modal-card {
+  width: min(100%, 640px);
+  display: grid;
+  gap: 18px;
+  padding: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-xl);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.7), rgba(248, 251, 255, 0.94) 34%),
+    rgba(248, 251, 255, 0.96);
+  box-shadow: 0 28px 80px rgba(10, 18, 32, 0.28);
+}
+
+.modal-card h2 {
+  margin: 0;
+  font-size: clamp(1.8rem, 4vw, 2.5rem);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
 @keyframes rise-in {
   from {
     opacity: 0;
@@ -1232,5 +1274,13 @@ button {
   .queue-list span,
   .ledger-list span {
     justify-self: start;
+  }
+
+  .modal-backdrop {
+    padding: 14px;
+  }
+
+  .modal-card {
+    padding: 20px;
   }
 }

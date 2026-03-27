@@ -1,5 +1,7 @@
 import { startTransition, useState } from 'react'
+import RechargePromptModal from '../components/RechargePromptModal'
 import { useAuth } from '../lib/auth'
+import { isInsufficientPointsMessage } from '../lib/billing'
 import { buildWebPageSchema, useSeo } from '../lib/seo'
 import type { BomParseResponse } from '../types'
 
@@ -24,6 +26,7 @@ function BomPage() {
   const [result, setResult] = useState<BomParseResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [showRechargePrompt, setShowRechargePrompt] = useState(false)
   const { selectedCompanyId, session, selectedCompanyName } = useAuth()
 
   async function handleParse() {
@@ -68,6 +71,10 @@ function BomPage() {
       const message =
         parseError instanceof Error ? parseError.message : 'BOM parse request failed.'
       setError(message)
+
+      if (isInsufficientPointsMessage(message)) {
+        setShowRechargePrompt(true)
+      }
     } finally {
       setIsLoading(false)
     }
@@ -232,6 +239,14 @@ function BomPage() {
           </div>
         </article>
       </section>
+
+      <RechargePromptModal
+        open={showRechargePrompt}
+        title="积分不足，无法继续计费解析"
+        body="本次 BOM 存在超出免费额度的计费行，当前企业积分不足，暂时无法完成扣费入账。完成充值后可以直接重新发起解析。"
+        companyName={selectedCompanyName ?? null}
+        onClose={() => setShowRechargePrompt(false)}
+      />
     </main>
   )
 }
